@@ -10,7 +10,7 @@
 
 	let { onSaved = () => {} }: { onSaved?: () => void } = $props();
 
-	type SectionKey = 'general' | 'appearance' | 'connection' | 'builds' | 'library';
+	type SectionKey = 'general' | 'appearance' | 'connection' | 'builds' | 'plugins' | 'library';
 	type MsgKey = Parameters<ReturnType<typeof makeTranslator>>[0];
 
 	let section = $state<SectionKey>('general');
@@ -63,7 +63,8 @@
 		| 'show_update_button'
 		| 'launch_minimized_to_tray'
 		| 'enable_new_builds_notifications'
-		| 'enable_mica';
+		| 'enable_mica'
+		| 'enable_extension_central';
 
 	function flag(key: BoolKey, value: boolean): void {
 		if (editable) editable = { ...editable, [key]: value };
@@ -83,7 +84,9 @@
 			const next: SettingsType = {
 				...editable,
 				launch_args: launchArgsText.split(/\s+/).filter(Boolean),
-				max_concurrent_downloads: Math.max(1, Math.min(8, editable.max_concurrent_downloads || 1))
+				max_concurrent_downloads: Math.max(1, Math.min(8, editable.max_concurrent_downloads || 1)),
+				// 输入框里清空 = 用默认目录；留空串会让后端当成相对路径。
+				extension_central_dir: editable.extension_central_dir?.trim() || null
 			};
 			await api.updateSettings(next);
 			settings.set(next);
@@ -99,6 +102,12 @@
 	async function browseInstallDir(): Promise<void> {
 		const picked = await api.pickDirectory();
 		if (picked && editable) editable = { ...editable, install_dir: picked };
+	}
+
+	/** 中央库目录留空 = 用数据目录，所以允许取消选择即清空。 */
+	async function browseCentralDir(): Promise<void> {
+		const picked = await api.pickDirectory();
+		if (picked && editable) editable = { ...editable, extension_central_dir: picked };
 	}
 
 	async function scan(): Promise<void> {
@@ -160,6 +169,7 @@
 		{ id: 'appearance', key: 'settings.nav.appearance' },
 		{ id: 'connection', key: 'settings.nav.connection' },
 		{ id: 'builds', key: 'settings.nav.builds' },
+		{ id: 'plugins', key: 'settings.nav.plugins' },
 		{ id: 'library', key: 'settings.nav.library' }
 	];
 
@@ -457,6 +467,31 @@
 							<SettingRow label={tr('settings.builds.args')} hint={tr('settings.builds.argsHint')} last>
 								<input class="{field} w-[240px] font-mono text-[12px]" bind:value={launchArgsText} placeholder="--factory-startup" />
 							</SettingRow>
+						</div>
+					</section>
+				{:else if section === 'plugins'}
+					<section>
+						<h2 class="mb-2 px-1 text-[13px] font-semibold text-ink-2">{tr('settings.ext.title')}</h2>
+						<div class="overflow-hidden rounded-sm2 border border-surface-4 bg-surface-2">
+							<SettingRow
+								label={tr('settings.ext.central')}
+								hint={tr('settings.ext.centralHint')}
+								last={!editable.enable_extension_central}
+								toggle
+								checked={editable.enable_extension_central}
+								onclick={() => toggle('enable_extension_central')}
+							/>
+							{#if editable.enable_extension_central}
+								<SettingRow label={tr('settings.ext.centralDir')} hint={tr('settings.ext.centralDirHint')} last>
+									<input class="{field} min-w-0 flex-1 max-w-[320px]" bind:value={editable.extension_central_dir} />
+									<button
+										class="h-8 rounded-sm2 bg-surface-4 px-3 text-[13px] text-ink-1 transition-colors hover:bg-surface-5"
+										onclick={browseCentralDir}
+									>
+										{tr('settings.general.browse')}
+									</button>
+								</SettingRow>
+							{/if}
 						</div>
 					</section>
 				{:else}

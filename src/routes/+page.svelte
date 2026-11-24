@@ -17,6 +17,7 @@
 	import CatalogDialog from '$lib/components/CatalogDialog.svelte';
 	import FirstRunWizard from '$lib/components/FirstRunWizard.svelte';
 	import ExtensionList from '$lib/components/ExtensionList.svelte';
+	import ExtensionManageDialog from '$lib/components/ExtensionManageDialog.svelte';
 	import {
 		appError,
 		builds,
@@ -41,6 +42,7 @@
 		CatalogItem,
 		DownloadTask,
 		ExtensionScan,
+		ExtensionManage,
 		InstalledExtension,
 		LegacyAddon,
 		MenuItem,
@@ -213,6 +215,84 @@
 			await loadExtensions(id);
 		} catch (err) {
 			appError.set(String(err));
+		}
+	}
+
+	// 阶段 B：单个扩展的版本管理对话框。
+	let manageItem = $state<InstalledExtension | null>(null);
+	let manageState = $state<ExtensionManage | null>(null);
+	let manageBusy = $state(false);
+	let manageError = $state('');
+
+	async function openManage(item: InstalledExtension): Promise<void> {
+		const id = extBuildId;
+		if (!id) return;
+		manageItem = item;
+		manageError = '';
+		manageState = null;
+		try {
+			const versions = await api.listExtensionVersions(id, item.pkg_id);
+			manageState = {
+				pkg_id: item.pkg_id,
+				repo: item.repo,
+				managed: item.managed,
+				central_path: null,
+				versions
+			};
+		} catch (err) {
+			manageError = String(err);
+		}
+	}
+
+	async function adoptExtension(): Promise<void> {
+		const id = extBuildId;
+		const item = manageItem;
+		if (!id || !item) return;
+		manageBusy = true;
+		manageError = '';
+		try {
+			manageState = await api.adoptExtension(id, item.repo, item.pkg_id);
+			await loadExtensions(id);
+		} catch (err) {
+			manageError = String(err);
+		} finally {
+			manageBusy = false;
+		}
+	}
+
+	async function switchVersion(version: string): Promise<void> {
+		const id = extBuildId;
+		const item = manageItem;
+		if (!id || !item) return;
+		manageBusy = true;
+		manageError = '';
+		try {
+			manageState = await api.switchExtensionVersion(id, item.repo, item.pkg_id, version);
+			await loadExtensions(id);
+		} catch (err) {
+			manageError = String(err);
+		} finally {
+			manageBusy = false;
+		}
+	}
+
+	async function releaseExtension(): Promise<void> {
+		const id = extBuildId;
+		const item = manageItem;
+		if (!id || !item) return;
+		const message = tr('ext.releaseHint');
+		if (!window.confirm(message)) return;
+		manageBusy = true;
+		manageError = '';
+		try {
+			await api.releaseExtension(id, item.repo, item.pkg_id);
+			manageState = null;
+			manageItem = null;
+			await loadExtensions(id);
+		} catch (err) {
+			manageError = String(err);
+		} finally {
+			manageBusy = false;
 		}
 	}
 
@@ -856,6 +936,7 @@
 						onToggle={(item, enabled) => void toggleExtension(item, enabled)}
 						onReveal={revealPath}
 						onRemove={(item) => void removeExtension(item)}
+						onManage={(item) => void openManage(item)}
 						onDetect={detectExtensions}
 					/>
 				</div>
@@ -1025,6 +1106,23 @@
 			onClose={() => (extCatalogOpen = false)}
 			onInstall={(item) => void installFromCatalog(item)}
 			onOpenPage={(url) => void api.openExtensionPage(url).catch((err) => appError.set(String(err)))}
+		/>
+	{/if}
+
+	{#if manageItem}
+		<ExtensionManageDialog
+			item={manageItem}
+			managed={manageState}
+			busy={manageBusy}
+			error={manageError}
+			onAdopt={() => void adoptExtension()}
+			onSwitch={(version) => void switchVersion(version)}
+			onRelease={() => void releaseExtension()}
+			onClose={() => {
+				manageItem = null;
+				manageState = null;
+				manageError = '';
+			}}
 		/>
 	{/if}
 

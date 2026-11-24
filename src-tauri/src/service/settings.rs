@@ -50,6 +50,14 @@ pub fn default_library_root() -> PathBuf {
     )
 }
 
+/// 默认中央库目录（插件版本切换用，docs/06 §7.2）。
+///
+/// 放在数据目录而不是库目录：中央库存的是插件内容，与 Blender 构建无关，
+/// 换库目录不该让已接管的扩展失去指向。
+pub fn default_extension_central_root() -> PathBuf {
+    data_root().join("extensions")
+}
+
 /// 库根目录下固定创建的子目录（原版 `library_subfolders`）。
 ///
 /// `template` 不是构建类别，是 Blender 的启动模板目录；原版建库时一起建，

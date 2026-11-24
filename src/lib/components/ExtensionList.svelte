@@ -23,6 +23,7 @@
 		onToggle = (_: InstalledExtension | LegacyAddon, __: boolean) => {},
 		onReveal = (_: string) => {},
 		onRemove = (_: InstalledExtension) => {},
+		onManage = (_: InstalledExtension) => {},
 		onDetect = () => {}
 	}: {
 		scan?: ExtensionScan | null;
@@ -30,6 +31,8 @@
 		onToggle?: (item: InstalledExtension | LegacyAddon, enabled: boolean) => void;
 		onReveal?: (path: string) => void;
 		onRemove?: (item: InstalledExtension) => void;
+		/** 打开版本管理（阶段 B）。只有扩展有版本，旧式插件不显示入口。 */
+		onManage?: (item: InstalledExtension) => void;
 		onDetect?: () => void;
 	} = $props();
 
@@ -141,7 +144,7 @@
 			<div class="w-[52px] shrink-0"></div>
 			<div class="min-w-0 flex-1">{tr('ext.title')}</div>
 			<div class="w-[120px] shrink-0">{tr('col.version')}</div>
-			<div class="w-[140px] shrink-0"></div>
+			<div class="w-[190px] shrink-0"></div>
 		</div>
 
 		<div
@@ -233,7 +236,7 @@
 							{versionOf(row)}
 						</div>
 
-						<div class="flex w-[140px] shrink-0 items-center justify-end gap-1 px-2">
+						<div class="flex w-[190px] shrink-0 items-center justify-end gap-1 px-2">
 							<button
 								class="h-6 rounded-sm2 px-2 text-[11px] text-ink-3 transition hover:bg-surface-3 hover:text-ink-1"
 								onclick={() => onReveal(pathOf(row))}
@@ -241,6 +244,13 @@
 								{tr('ext.reveal')}
 							</button>
 							{#if row.kind === 'ext'}
+								<button
+									class="h-6 rounded-sm2 px-2 text-[11px] text-ink-3 transition hover:bg-surface-3 hover:text-ink-1"
+									title={tr('ext.manageTitle')}
+									onclick={() => onManage(row.item)}
+								>
+									{tr('ext.manage')}
+								</button>
 								<button
 									class="h-6 rounded-sm2 px-2 text-[11px] text-danger/80 transition hover:bg-danger/10 hover:text-danger"
 									onclick={() => onRemove(row.item)}

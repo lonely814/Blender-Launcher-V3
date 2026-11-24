@@ -104,6 +104,10 @@ export interface Settings {
 	auto_register_winget: boolean;
 	/** Windows 11 Mica 背景材质。 */
 	enable_mica: boolean;
+	/** 插件中央库（阶段 B）。默认关闭：接管会改写扩展目录结构。 */
+	enable_extension_central: boolean;
+	/** 中央库根目录。`null` = `<数据目录>/extensions`。 */
+	extension_central_dir: string | null;
 }
 
 /** 只支持 HTTP/HTTPS：SOCKS 需要 reqwest 的 socks feature，本实现不引入。 */
@@ -202,6 +206,17 @@ export interface ExtensionScan {
 	ext_root: string | null;
 	/** 上次探测启用状态的时间（ISO 串）。`null` 表示从未探测过。 */
 	enabled_checked_at: string | null;
+}
+
+/** 阶段 B 的管理结果。 */
+export interface ExtensionManage {
+	pkg_id: string;
+	repo: string;
+	managed: boolean;
+	/** 中央库中当前版本的实际路径。 */
+	central_path: string | null;
+	/** 中央库里该扩展的全部版本，降序。 */
+	versions: string[];
 }
 
 /** 官方目录条目（L2 本地 index.json / L3 联网）。 */

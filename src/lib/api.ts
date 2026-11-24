@@ -7,6 +7,7 @@ import type {
 	CleanupResult,
 	DownloadTask,
 	BuildDetails,
+	ExtensionManage,
 	ExtensionScan,
 	InstalledExtension,
 	LaunchedInstance,
@@ -266,6 +267,43 @@ export async function removeExtension(
 	pkgId: string
 ): Promise<void> {
 	return invoke('remove_extension', { buildId, repo, pkgId });
+}
+
+/**
+ * 接管扩展到中央库（阶段 B）。会把内容复制进中央库、原位置换成 junction。
+ * 只由用户点「接管」触发——浏览插件时永远不写盘。
+ */
+export async function adoptExtension(
+	buildId: string,
+	repo: string,
+	pkgId: string
+): Promise<ExtensionManage> {
+	return invoke<ExtensionManage>('adopt_extension', { buildId, repo, pkgId });
+}
+
+export async function switchExtensionVersion(
+	buildId: string,
+	repo: string,
+	pkgId: string,
+	version: string
+): Promise<ExtensionManage> {
+	return invoke<ExtensionManage>('switch_extension_version', { buildId, repo, pkgId, version });
+}
+
+/** 解除接管：内容复制回原位置，目录恢复成普通文件夹。 */
+export async function releaseExtension(
+	buildId: string,
+	repo: string,
+	pkgId: string
+): Promise<void> {
+	return invoke('release_extension', { buildId, repo, pkgId });
+}
+
+export async function listExtensionVersions(
+	buildId: string,
+	pkgId: string
+): Promise<string[]> {
+	return invoke<string[]>('list_extension_versions', { buildId, pkgId });
 }
 
 export async function openExtensionPage(url: string): Promise<void> {

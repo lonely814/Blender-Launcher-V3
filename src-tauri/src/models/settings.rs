@@ -58,6 +58,13 @@ pub struct Settings {
     /// Windows 11 云母（Mica）背景材质。不支持的平台自动忽略。
     #[serde(default = "default_true")]
     pub enable_mica: bool,
+    /// 插件中央库（docs/06 §7.2）。默认关闭：接管会改写用户的扩展目录，
+    /// 必须由用户显式开启一次，不能因为升级就悄悄打开。
+    #[serde(default)]
+    pub enable_extension_central: bool,
+    /// 中央库根目录。`None` = `<data_root>/extensions`，随便携模式走。
+    #[serde(default)]
+    pub extension_central_dir: Option<PathBuf>,
 }
 
 fn default_language() -> String {
@@ -174,6 +181,8 @@ impl Default for Settings {
             language: default_language(),
             auto_register_winget: false,
             enable_mica: true,
+            enable_extension_central: false,
+            extension_central_dir: None,
         }
     }
 }

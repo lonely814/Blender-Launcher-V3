@@ -1,4 +1,5 @@
 pub mod downloader;
+pub mod extension_central;
 pub mod extension_probe;
 pub mod extensions;
 pub mod extractor;

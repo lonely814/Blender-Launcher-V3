@@ -447,6 +447,178 @@ pub async fn remove_extension(
     Ok(())
 }
 
+/// 接管一个已装扩展到中央库（阶段 B1）。
+///
+/// 只有用户明确要求时才执行：接管会改写扩展目录结构，
+/// 把实现放在独立命令里，让「只是浏览插件」这条路径永远不写盘。
+#[tauri::command]
+pub async fn adopt_extension(
+    state: State<'_, AppState>,
+    app_handle: tauri::AppHandle,
+    build_id: String,
+    repo: String,
+    pkg_id: String,
+) -> std::result::Result<ExtensionManageView, String> {
+    let (ext_root, central_root) = manage_context(&state, &build_id).map_err(String::from)?;
+    if !settings_enabled(&state) {
+        return Err("中央库未启用，请先在设置里开启".to_string());
+    }
+    if !is_safe_module_part(&repo) || !is_safe_module_part(&pkg_id) {
+        return Err(format!("非法的扩展标识: {repo}.{pkg_id}"));
+    }
+
+    let pkg_path = ext_root.join(&repo).join(&pkg_id);
+    let manifest = extensions::read_manifest(&pkg_path).map_err(String::from)?;
+    let version = manifest.version.clone();
+
+    let pkg_path_for_task = pkg_path.clone();
+    let pkg_id_for_task = pkg_id.clone();
+    let marker = tokio::task::spawn_blocking(move || {
+        crate::service::extension_central::adopt(
+            &pkg_path_for_task,
+            &central_root,
+            &pkg_id_for_task,
+            &version,
+        )
+    })
+    .await
+    .map_err(|err| format!("接管任务失败: {err}"))?
+    .map_err(String::from)?;
+
+    let _ = app_handle.emit("extension_changed", ());
+    Ok(ExtensionManageView {
+        pkg_id: pkg_id.clone(),
+        repo,
+        managed: true,
+        central_path: Some(marker.central_path.display().to_string()),
+        versions: central_versions(&state, &pkg_id),
+    })
+}
+
+/// 切换到中央库里的另一个版本。
+#[tauri::command]
+pub async fn switch_extension_version(
+    state: State<'_, AppState>,
+    app_handle: tauri::AppHandle,
+    build_id: String,
+    repo: String,
+    pkg_id: String,
+    version: String,
+) -> std::result::Result<ExtensionManageView, String> {
+    let (ext_root, central_root) = manage_context(&state, &build_id).map_err(String::from)?;
+    if !is_safe_module_part(&repo) || !is_safe_module_part(&pkg_id) {
+        return Err(format!("非法的扩展标识: {repo}.{pkg_id}"));
+    }
+
+    let pkg_path = ext_root.join(&repo).join(&pkg_id);
+    let pkg_id_for_task = pkg_id.clone();
+    let marker = tokio::task::spawn_blocking(move || {
+        crate::service::extension_central::switch_version(
+            &pkg_path,
+            &central_root,
+            &pkg_id_for_task,
+            &version,
+        )
+    })
+    .await
+    .map_err(|err| format!("切换任务失败: {err}"))?
+    .map_err(String::from)?;
+
+    let _ = app_handle.emit("extension_changed", ());
+    Ok(ExtensionManageView {
+        pkg_id: pkg_id.clone(),
+        repo,
+        managed: true,
+        central_path: Some(marker.central_path.display().to_string()),
+        versions: central_versions(&state, &pkg_id),
+    })
+}
+
+/// 解除接管：内容复制回原位置，目录恢复成普通文件夹。
+#[tauri::command]
+pub async fn release_extension(
+    state: State<'_, AppState>,
+    app_handle: tauri::AppHandle,
+    build_id: String,
+    repo: String,
+    pkg_id: String,
+) -> std::result::Result<(), String> {
+    let (ext_root, _) = manage_context(&state, &build_id).map_err(String::from)?;
+    if !is_safe_module_part(&repo) || !is_safe_module_part(&pkg_id) {
+        return Err(format!("非法的扩展标识: {repo}.{pkg_id}"));
+    }
+
+    let pkg_path = ext_root.join(&repo).join(&pkg_id);
+    tokio::task::spawn_blocking(move || crate::service::extension_central::release(&pkg_path))
+        .await
+        .map_err(|err| format!("解除接管任务失败: {err}"))?
+        .map_err(String::from)?;
+
+    let _ = app_handle.emit("extension_changed", ());
+    Ok(())
+}
+
+/// 某扩展在中央库里的可用版本。
+#[tauri::command]
+pub async fn list_extension_versions(
+    state: State<'_, AppState>,
+    build_id: String,
+    pkg_id: String,
+) -> std::result::Result<Vec<String>, String> {
+    let (_, central_root) = manage_context(&state, &build_id).map_err(String::from)?;
+    if !is_safe_module_part(&pkg_id) {
+        return Err(format!("非法的扩展标识: {pkg_id}"));
+    }
+    Ok(crate::service::extension_central::versions(
+        &central_root,
+        &pkg_id,
+    ))
+}
+
+/// 阶段 B 的管理结果。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExtensionManageView {
+    pub pkg_id: String,
+    pub repo: String,
+    pub managed: bool,
+    pub central_path: Option<String>,
+    /// 中央库里该扩展的全部版本（降序），供切换下拉。
+    pub versions: Vec<String>,
+}
+
+/// 阶段 B 需要的两个路径：扩展根与中央库根。
+///
+/// 不返回 `install_path`：接管/切换/解除都只动扩展根，
+/// 多返回一个没人用的路径，就是多一处将来被误用的机会。
+fn manage_context(state: &AppState, build_id: &str) -> Result<(PathBuf, PathBuf)> {
+    let build = installed_build(state, build_id)?;
+    let install_path = build
+        .install_path
+        .clone()
+        .ok_or_else(|| AppError::InvalidSettings("构建未安装".to_string()))?;
+    let ext_root = extensions::resolve_ext_root_for(&install_path, &build.version)?;
+    Ok((ext_root, central_root(state)))
+}
+
+/// 中央库根目录：设置里的自定义路径，否则数据目录下的 `extensions/`。
+fn central_root(state: &AppState) -> PathBuf {
+    state
+        .settings
+        .lock()
+        .unwrap()
+        .extension_central_dir
+        .clone()
+        .unwrap_or_else(crate::service::settings::default_extension_central_root)
+}
+
+fn settings_enabled(state: &AppState) -> bool {
+    state.settings.lock().unwrap().enable_extension_central
+}
+
+fn central_versions(state: &AppState, pkg_id: &str) -> Vec<String> {
+    crate::service::extension_central::versions(&central_root(state), pkg_id)
+}
+
 /// 由调用方提供 URL 打开系统浏览器。
 #[tauri::command]
 pub async fn open_extension_page(url: String) -> std::result::Result<(), String> {
@@ -597,13 +769,12 @@ fn is_safe_module_part(value: &str) -> bool {
 }
 
 /// 删除 junction 或符号链接本身，不触碰目标内容。
+///
+/// 具体实现放在 `service::extension_central`，那里会先判类型再删：
+/// 「先试 remove_dir、失败再试 remove_file」在一个普通目录上会删掉
+/// 空目录本身——调用方本意是删链接，却把用户目录删了。
 fn remove_link(path: &Path) -> Result<()> {
-    // Windows 上目录符号链接用 remove_dir 删除才会移除链接本身；
-    // 但对 junction 行为不一致，所以先试 remove_dir，失败再试 remove_file。
-    if std::fs::remove_dir(path).is_ok() {
-        return Ok(());
-    }
-    std::fs::remove_file(path).map_err(AppError::from)
+    crate::service::extension_central::remove_link(path)
 }
 
 async fn get_extension_catalog_inner(state: &AppState, build: &Build) -> Result<Vec<CatalogItem>> {

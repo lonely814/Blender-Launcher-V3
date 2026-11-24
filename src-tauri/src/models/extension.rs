@@ -215,6 +215,19 @@ impl CatalogItem {
     }
 }
 
+/// 官方站「Version History」页里的一个历史版本。
+///
+/// 官方没有版本列表 API（实测 `/api/v1/extensions/<id>/versions/` 返回 404），
+/// 只能解析网页。幸运的是每个历史版本都带独立的
+/// `download/sha256:<哈希>/<包名>.zip` 链接，哈希可以直接用来校验下载内容。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ExtensionVersion {
+    pub version: String,
+    pub archive_url: String,
+    /// `sha256:<hex>`，与目录 API 同一格式。
+    pub archive_hash: Option<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

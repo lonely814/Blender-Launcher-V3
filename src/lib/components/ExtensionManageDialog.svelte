@@ -1,22 +1,28 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { locale, makeTranslator } from '$lib/i18n';
-	import type { ExtensionManage, InstalledExtension } from '$lib/types';
+	import type { ExtensionManage, ExtensionVersion, InstalledExtension } from '$lib/types';
 
 	/**
 	 * 单个扩展的版本管理对话框（阶段 B）。
 	 *
-	 * 只做三件事：接管、切换版本、解除接管。所有文件操作都在 Rust 侧，
-	 * 这里只负责把「用户点了什么」翻译成一次命令调用，并把失败原文显示出来——
-	 * 接管会移动用户的插件目录，任何失败都必须让用户看见原因，不能吞掉。
+	 * 做四件事：接管、切换版本、从官方站添加某个历史版本、解除接管。
+	 * 所有文件操作都在 Rust 侧，这里只负责把「用户点了什么」翻译成一次
+	 * 命令调用，并把失败原文显示出来——接管会移动用户的插件目录，
+	 * 任何失败都必须让用户看见原因，不能吞掉。
 	 */
 	let {
 		item,
 		managed = null as ExtensionManage | null,
 		busy = false,
 		error = '',
+		history = [] as ExtensionVersion[],
+		historyLoading = false,
+		historyError = '',
+		adding = null as string | null,
 		onAdopt = () => {},
 		onSwitch = (_: string) => {},
+		onAddVersion = (_: string) => {},
 		onRelease = () => {},
 		onClose = () => {}
 	}: {
@@ -24,8 +30,15 @@
 		managed?: ExtensionManage | null;
 		busy?: boolean;
 		error?: string;
+		/** 官方站的历史版本；为空表示拿不到或还没加载。 */
+		history?: ExtensionVersion[];
+		historyLoading?: boolean;
+		historyError?: string;
+		/** 正在下载的版本号，用来只禁用那一行。 */
+		adding?: string | null;
 		onAdopt?: () => void;
 		onSwitch?: (version: string) => void;
+		onAddVersion?: (version: string) => void;
 		onRelease?: () => void;
 		onClose?: () => void;
 	} = $props();
@@ -46,6 +59,12 @@
 			return parts[parts.length - 1] ?? item.version;
 		}
 		return item.version;
+	});
+
+	/** 中央库里还没有的官方版本——已经有的不必再下载（点一下就能切）。 */
+	const downloadable = $derived.by(() => {
+		const local = new Set(managed?.versions ?? []);
+		return history.filter((entry) => !local.has(entry.version));
 	});
 
 	onMount(() => {
@@ -76,7 +95,7 @@
 			<p class="mt-0.5 truncate text-[11.5px] text-ink-3">{item.repo}.{item.pkg_id}</p>
 		</div>
 
-		<div class="flex flex-col gap-3 px-5 py-4">
+		<div class="flex max-h-[420px] flex-col gap-3 overflow-y-auto px-5 py-4">
 			<div class="flex items-baseline justify-between text-[13px]">
 				<span class="text-ink-3">{tr('ext.currentVersion')}</span>
 				<span class="tabular-nums text-ink-1">{currentVersion}</span>
@@ -117,6 +136,41 @@
 					{tr('ext.adoptHint')}
 				</p>
 			{/if}
+
+			<!-- 官方站的历史版本：只列出中央库里还没有的那些 -->
+			<div class="mt-1">
+				<div class="mb-1.5 flex items-baseline gap-2">
+					<span class="text-[12px] text-ink-3">{tr('ext.historyTitle')}</span>
+					{#if historyLoading}
+						<span class="text-[11px] text-ink-3/70">{tr('ext.historyLoading')}</span>
+					{/if}
+				</div>
+				{#if historyError}
+					<p class="text-[11.5px] leading-relaxed text-warning">{historyError}</p>
+				{:else if !historyLoading && history.length === 0}
+					<p class="text-[11.5px] leading-relaxed text-ink-3/80">{tr('ext.historyEmpty')}</p>
+				{:else if downloadable.length === 0}
+					<p class="text-[11.5px] leading-relaxed text-ink-3/80">{tr('ext.historyAllLocal')}</p>
+				{:else}
+					<div class="overflow-hidden rounded-sm2 border border-surface-4">
+						{#each downloadable as entry (entry.version)}
+							<div class="flex items-center justify-between px-3 py-1.5 text-[13px]">
+								<span class="tabular-nums text-ink-2">{entry.version}</span>
+								<button
+									class="h-6 rounded-sm2 border border-surface-4 px-2 text-[11px] text-ink-2 transition-colors hover:border-surface-5 hover:text-ink-1 disabled:opacity-50"
+									disabled={busy || adding !== null}
+									onclick={() => onAddVersion(entry.version)}
+								>
+									{adding === entry.version ? tr('ext.historyAdding') : tr('ext.historyAdd')}
+								</button>
+							</div>
+						{/each}
+					</div>
+					<p class="mt-1.5 text-[11px] leading-relaxed text-ink-3/70">
+						{tr('ext.historyHint')}
+					</p>
+				{/if}
+			</div>
 
 			{#if error}
 				<p class="rounded-sm2 border border-danger/40 bg-danger/5 px-3 py-2 text-[12px] leading-relaxed text-danger">

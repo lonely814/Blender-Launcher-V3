@@ -9,6 +9,7 @@ import type {
 	BuildDetails,
 	ExtensionManage,
 	ExtensionScan,
+	ExtensionVersion,
 	InstalledExtension,
 	LaunchedInstance,
 	LibraryStats,
@@ -304,6 +305,33 @@ export async function listExtensionVersions(
 	pkgId: string
 ): Promise<string[]> {
 	return invoke<string[]>('list_extension_versions', { buildId, pkgId });
+}
+
+/**
+ * 官方站的历史版本列表。解析网页得来，拿不到时返回空数组而不是报错。
+ *
+ * 必须传 `repo`：同一个 id 可能同时出现在厂商仓库与 `blender_org` 里，
+ * 后端要读该扩展**所属仓库**的索引才能拿到对的官网地址。
+ */
+export async function listExtensionHistory(
+	buildId: string,
+	repo: string,
+	pkgId: string
+): Promise<ExtensionVersion[]> {
+	return invoke<ExtensionVersion[]>('list_extension_history', { buildId, repo, pkgId });
+}
+
+/**
+ * 下载官方站的一个历史版本并放进中央库；已接管时同时切换过去。
+ * 只写中央库：失败不影响当前生效的那一版。
+ */
+export async function addExtensionVersion(
+	buildId: string,
+	repo: string,
+	pkgId: string,
+	version: string
+): Promise<ExtensionManage> {
+	return invoke<ExtensionManage>('add_extension_version', { buildId, repo, pkgId, version });
 }
 
 export async function openExtensionPage(url: string): Promise<void> {

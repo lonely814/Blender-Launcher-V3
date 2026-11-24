@@ -43,6 +43,7 @@
 		DownloadTask,
 		ExtensionScan,
 		ExtensionManage,
+		ExtensionVersion,
 		InstalledExtension,
 		LegacyAddon,
 		MenuItem,
@@ -223,6 +224,11 @@
 	let manageState = $state<ExtensionManage | null>(null);
 	let manageBusy = $state(false);
 	let manageError = $state('');
+	// 官方站历史版本（B2）。拿不到就留空，对话框里只显示已入库的版本。
+	let manageHistory = $state<ExtensionVersion[]>([]);
+	let manageHistoryLoading = $state(false);
+	let manageHistoryError = $state('');
+	let manageAdding = $state<string | null>(null);
 
 	async function openManage(item: InstalledExtension): Promise<void> {
 		const id = extBuildId;
@@ -230,6 +236,8 @@
 		manageItem = item;
 		manageError = '';
 		manageState = null;
+		manageHistory = [];
+		manageHistoryError = '';
 		try {
 			const versions = await api.listExtensionVersions(id, item.pkg_id);
 			manageState = {
@@ -241,6 +249,15 @@
 			};
 		} catch (err) {
 			manageError = String(err);
+		}
+		// 历史版本要联网，单独等：失败也不影响接管/切换这些本地操作。
+		manageHistoryLoading = true;
+		try {
+			manageHistory = await api.listExtensionHistory(id, item.repo, item.pkg_id);
+		} catch (err) {
+			manageHistoryError = String(err);
+		} finally {
+			manageHistoryLoading = false;
 		}
 	}
 
@@ -273,6 +290,24 @@
 			manageError = String(err);
 		} finally {
 			manageBusy = false;
+		}
+	}
+
+	/** 下载官方站的一个历史版本进中央库；已接管时后端会顺带切过去。 */
+	async function addVersion(version: string): Promise<void> {
+		const id = extBuildId;
+		const item = manageItem;
+		if (!id || !item || manageAdding) return;
+		manageAdding = version;
+		manageError = '';
+		try {
+			// 命令返回的 `versions` 已经包含新下的这一版，不必再查一次。
+			manageState = await api.addExtensionVersion(id, item.repo, item.pkg_id, version);
+			await loadExtensions(id);
+		} catch (err) {
+			manageError = String(err);
+		} finally {
+			manageAdding = null;
 		}
 	}
 
@@ -1115,13 +1150,20 @@
 			managed={manageState}
 			busy={manageBusy}
 			error={manageError}
+			history={manageHistory}
+			historyLoading={manageHistoryLoading}
+			historyError={manageHistoryError}
+			adding={manageAdding}
 			onAdopt={() => void adoptExtension()}
 			onSwitch={(version) => void switchVersion(version)}
+			onAddVersion={(version) => void addVersion(version)}
 			onRelease={() => void releaseExtension()}
 			onClose={() => {
 				manageItem = null;
 				manageState = null;
 				manageError = '';
+				manageHistory = [];
+				manageHistoryError = '';
 			}}
 		/>
 	{/if}

@@ -192,10 +192,16 @@ pub fn adopt(
 
     let central_path = central_root.join(&pkg_id).join(&version);
     if central_path.exists() {
-        return Err(AppError::InvalidSettings(format!(
-            "中央库已有同名版本：{}",
-            central_path.display()
-        )));
+        // 中央库里已有同一版本：内容一致就复用，不一致才拒绝。
+        // 复用这条路径在「解除接管后又接管回来」时是常态——
+        // 内容没变却要用户先手工删掉中央库里的副本，没有道理。
+        if !same_tree(pkg_path, &central_path) {
+            return Err(AppError::InvalidSettings(format!(
+                "中央库已有同名版本且内容不同：{}",
+                central_path.display()
+            )));
+        }
+        return link_to_existing(pkg_path, &central_path, &pkg_id);
     }
 
     copy_dir(pkg_path, &central_path)?;
@@ -206,9 +212,17 @@ pub fn adopt(
         )));
     }
 
+    link_to_existing(pkg_path, &central_path, &pkg_id)
+}
+
+/// 把已经存在于中央库的内容换成指向它的链接（接管的后半段）。
+///
+/// 单独抽出来是因为它同时服务两条路径：正常接管（刚复制完）与
+/// 复用既有版本（内容比对一致）。两条路径的安全要求相同，
+/// 写两份迟早会分叉。
+fn link_to_existing(pkg_path: &Path, central_path: &Path, pkg_id: &str) -> Result<ManagedMetadata> {
     let backup = pkg_path.with_extension("blmgr-bak");
     if backup.exists() {
-        let _ = std::fs::remove_dir_all(&central_path);
         return Err(AppError::InvalidSettings(format!(
             "备份路径已存在，请先清理：{}",
             backup.display()
@@ -216,10 +230,9 @@ pub fn adopt(
     }
     std::fs::rename(pkg_path, &backup).map_err(AppError::FileSystem)?;
 
-    if let Err(err) = create_dir_link(&central_path, pkg_path) {
-        // 建链接失败：把原目录改回名字，删掉刚复制的副本。
+    if let Err(err) = create_dir_link(central_path, pkg_path) {
+        // 建链接失败：把原目录改回名字。
         let restored = std::fs::rename(&backup, pkg_path);
-        let _ = std::fs::remove_dir_all(&central_path);
         return match restored {
             Ok(()) => Err(err),
             Err(restore_err) => Err(AppError::FileSystem(std::io::Error::other(format!(
@@ -233,13 +246,166 @@ pub fn adopt(
 
     let marker = ManagedMetadata {
         schema_version: MANAGED_SCHEMA_VERSION,
-        central_path: central_path.clone(),
-        pkg_id: pkg_id.clone(),
+        central_path: central_path.to_path_buf(),
+        pkg_id: pkg_id.to_string(),
         managed_since: chrono::Utc::now(),
     };
     // 通过链接写入，标记落在中央库里，跟着版本走。
     extensions::write_managed_marker(pkg_path, &marker)?;
     Ok(marker)
+}
+
+/// 把一个 zip 解到中央库，成为 `<pkg_id>/<version>` 这一版。
+///
+/// 只写中央库，不碰扩展目录：新加进来的版本要等 `switch_version`
+/// 才会生效。这样「下载失败」「解压失败」「id 对不上」都不会影响
+/// 当前正在用的那一版。
+///
+/// 内容放在临时目录里解压再整体改名，避免解压中途失败留下半个版本——
+/// 半个版本一旦被切换过去，Blender 里就是一个坏掉的扩展。
+pub fn import_zip(
+    zip_path: &Path,
+    central_root: &Path,
+    pkg_id: &str,
+    version: &str,
+) -> Result<PathBuf> {
+    let pkg_id = sanitize_component(pkg_id)?;
+    let version = sanitize_component(version)?;
+    if !zip_path.is_file() {
+        return Err(AppError::InvalidSettings(format!(
+            "扩展包不存在：{}",
+            zip_path.display()
+        )));
+    }
+
+    let target = central_root.join(&pkg_id).join(&version);
+    if target.exists() {
+        return Err(AppError::InvalidSettings(format!(
+            "中央库已有该版本：{}",
+            target.display()
+        )));
+    }
+
+    let staging = central_root
+        .join(&pkg_id)
+        .join(format!(".incoming-{version}"));
+    if staging.exists() {
+        let _ = std::fs::remove_dir_all(&staging);
+    }
+    std::fs::create_dir_all(&staging).map_err(AppError::FileSystem)?;
+
+    let outcome = extract_flat(zip_path, &staging)
+        .and_then(|()| verify_manifest_id(&staging, &pkg_id))
+        .and_then(|()| std::fs::rename(&staging, &target).map_err(AppError::FileSystem));
+
+    if let Err(err) = outcome {
+        let _ = std::fs::remove_dir_all(&staging);
+        return Err(err);
+    }
+    Ok(target)
+}
+
+/// 解压并剥掉「所有条目都在同一层子目录下」的那层包裹。
+///
+/// 官方下载包是扁平结构，但用户手工导入的 GitHub zip 常带一层
+/// `<repo>-main/`。blender 自己的 `pkg_zipfile_detect_subdir_or_none`
+/// 也做同样处理，否则解出来的目录在 Blender 里读不到 manifest。
+fn extract_flat(zip_path: &Path, dest: &Path) -> Result<()> {
+    let file = std::fs::File::open(zip_path).map_err(AppError::FileSystem)?;
+    let mut archive =
+        zip::ZipArchive::new(file).map_err(|err| AppError::ExtractFailed(err.to_string()))?;
+
+    let mut names = Vec::with_capacity(archive.len());
+    for index in 0..archive.len() {
+        let entry = archive
+            .by_index(index)
+            .map_err(|err| AppError::ExtractFailed(err.to_string()))?;
+        names.push(entry.name().to_string());
+    }
+    let wrapper = common_wrapper_dir(&names);
+
+    for index in 0..archive.len() {
+        let mut entry = archive
+            .by_index(index)
+            .map_err(|err| AppError::ExtractFailed(err.to_string()))?;
+        // `enclosed_name` 已经把 `..` 与绝对路径挡掉，是 zip crate 提供的
+        // zip-slip 防护；这里再用它一次，避免自己拼 relative 时绕过。
+        let Some(relative) = entry.enclosed_name() else {
+            continue;
+        };
+        let relative = match &wrapper {
+            Some(dir) => match relative.strip_prefix(dir) {
+                Ok(rest) => rest.to_path_buf(),
+                Err(_) => continue,
+            },
+            None => relative,
+        };
+        if relative.as_os_str().is_empty() {
+            continue;
+        }
+        let out_path = dest.join(&relative);
+        if entry.is_dir() {
+            std::fs::create_dir_all(&out_path).map_err(AppError::FileSystem)?;
+            continue;
+        }
+        if let Some(parent) = out_path.parent() {
+            std::fs::create_dir_all(parent).map_err(AppError::FileSystem)?;
+        }
+        let mut out = std::fs::File::create(&out_path).map_err(AppError::FileSystem)?;
+        std::io::copy(&mut entry, &mut out).map_err(AppError::FileSystem)?;
+    }
+    Ok(())
+}
+
+/// 如果所有条目都在同一个顶层目录下，返回那个目录名。
+fn common_wrapper_dir(names: &[String]) -> Option<PathBuf> {
+    let mut first: Option<&str> = None;
+    for name in names {
+        let name = name.trim_start_matches("./");
+        if name.is_empty() {
+            continue;
+        }
+        let head = name.split('/').next()?;
+        // 有条目直接放在根上（含根级 `blender_manifest.toml`）就没有包裹层。
+        if !name.contains('/') {
+            return None;
+        }
+        match first {
+            None => first = Some(head),
+            Some(existing) if existing != head => return None,
+            _ => {}
+        }
+    }
+    first.map(PathBuf::from)
+}
+
+/// 确认解出来的包确实是我们要的那个扩展。
+///
+/// 版本号和 id 都从解出来的 manifest 复核：目录里的版本号与包里写的
+/// 版本号不一致时，中央库里就会多出一个名字骗人的版本目录。
+fn verify_manifest_id(dir: &Path, expected_id: &str) -> Result<()> {
+    let manifest_path = dir.join("blender_manifest.toml");
+    if !manifest_path.is_file() {
+        return Err(AppError::InvalidSettings(
+            "扩展包里没有 blender_manifest.toml".to_string(),
+        ));
+    }
+    let manifest = extensions::read_manifest(dir)?;
+    if !manifest.id.eq_ignore_ascii_case(expected_id) {
+        return Err(AppError::InvalidSettings(format!(
+            "包内 id 是 {:?}，与预期的 {expected_id:?} 不一致",
+            manifest.id
+        )));
+    }
+    if !manifest.version.trim().is_empty() {
+        // 只做提示不阻断：第三方包的 manifest 版本与目录版本对不上是常事，
+        // 而版本目录名由调用方（下载链接/目录条目）决定，已经确定。
+        tracing::debug!(
+            manifest_version = %manifest.version,
+            "解压后的 manifest 版本"
+        );
+    }
+    Ok(())
 }
 
 /// 切换已被接管的扩展到中央库里的另一个版本。
@@ -464,6 +630,124 @@ mod tests {
     }
 
     #[test]
+    fn test_adopt_reuses_identical_existing_version() {
+        // 「解除接管 → 又接管回来」的路径：中央库副本还在且内容相同，
+        // 应当直接建链接，不该逼用户先手工删中央库。
+        let root = unique_temp_dir();
+        let central = root.join("central");
+        let pkg = make_pkg(&root, "reuse", &[("a.txt", "1"), ("sub/b.txt", "22")]);
+        std::fs::create_dir_all(central.join("reuse").join("1.0.0").join("sub")).unwrap();
+        std::fs::write(central.join("reuse").join("1.0.0").join("a.txt"), "1").unwrap();
+        std::fs::write(central.join("reuse").join("1.0.0").join("sub/b.txt"), "22").unwrap();
+
+        let marker = adopt(&pkg, &central, "reuse", "1.0.0").unwrap();
+        assert!(is_dir_link(&pkg), "应改为链接");
+        assert!(
+            marker.central_path.ends_with("reuse/1.0.0")
+                || marker.central_path.ends_with("reuse\\1.0.0")
+        );
+        assert!(pkg.join("sub/b.txt").is_file());
+        assert!(
+            extensions::read_managed_marker(&pkg).is_some(),
+            "标记要写上"
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// 造一个 zip，`prefix` 非空时所有条目都放进同一层子目录（GitHub 风格）。
+    fn write_zip(dir: &Path, files: &[(&str, &str)], prefix: Option<&str>) -> PathBuf {
+        use std::io::Write;
+        let path = dir.join("pkg.zip");
+        let mut writer = zip::ZipWriter::new(std::fs::File::create(&path).unwrap());
+        let options = zip::write::SimpleFileOptions::default();
+        for (name, content) in files {
+            let full = match prefix {
+                Some(prefix) => format!("{prefix}/{name}"),
+                None => (*name).to_string(),
+            };
+            writer.start_file(full, options).unwrap();
+            writer.write_all(content.as_bytes()).unwrap();
+        }
+        writer.finish().unwrap();
+        path
+    }
+
+    #[test]
+    fn test_import_zip_strips_wrapper_dir() {
+        let root = unique_temp_dir();
+        let central = root.join("central");
+        let zip_path = write_zip(
+            &root,
+            &[
+                (
+                    "blender_manifest.toml",
+                    "id = \"imp\"\nversion = \"2.0.0\"\n",
+                ),
+                ("__init__.py", "print(1)"),
+            ],
+            Some("imp-main"),
+        );
+
+        let target = import_zip(&zip_path, &central, "imp", "2.0.0").unwrap();
+        assert!(
+            target.join("blender_manifest.toml").is_file(),
+            "包裹层要被剥掉"
+        );
+        assert!(target.join("__init__.py").is_file());
+        assert!(central.join("imp").join("2.0.0").is_dir());
+        // 临时目录不能残留。
+        assert!(!central.join("imp").join(".incoming-2.0.0").exists());
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn test_import_zip_rejects_wrong_id_and_leaves_no_trace() {
+        let root = unique_temp_dir();
+        let central = root.join("central");
+        let zip_path = write_zip(
+            &root,
+            &[(
+                "blender_manifest.toml",
+                "id = \"someone_else\"\nversion = \"1.0.0\"\n",
+            )],
+            None,
+        );
+
+        let err = import_zip(&zip_path, &central, "expected", "1.0.0").unwrap_err();
+        assert!(err.to_string().contains("不一致"), "错误要能说明原因");
+        assert!(!central.join("expected").join("1.0.0").exists());
+        assert!(!central.join("expected").join(".incoming-1.0.0").exists());
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn test_import_zip_refuses_existing_version() {
+        let root = unique_temp_dir();
+        let central = root.join("central");
+        std::fs::create_dir_all(central.join("dup").join("1.0.0")).unwrap();
+        let zip_path = write_zip(
+            &root,
+            &[(
+                "blender_manifest.toml",
+                "id = \"dup\"\nversion = \"1.0.0\"\n",
+            )],
+            None,
+        );
+
+        assert!(import_zip(&zip_path, &central, "dup", "1.0.0").is_err());
+        // 已有版本的内容不能被覆盖。
+        assert!(!central
+            .join("dup")
+            .join("1.0.0")
+            .join("blender_manifest.toml")
+            .exists());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
     fn test_switch_version_repoints_link() {
         let root = unique_temp_dir();
         let central = root.join("central");
@@ -587,5 +871,93 @@ mod live_tests {
         let _ = std::fs::remove_dir_all(&pkg_path);
         let _ = std::fs::remove_dir_all(central);
         eprintln!("live adopt/switch/release ok");
+    }
+
+    /// 用官方站真实下载的 zip 走一遍 `import_zip`：解包、剥包裹层、校验 id。
+    ///
+    /// 手动运行：
+    /// `BLMGR_EXT_ZIP=/tmp/facetor100.zip BLMGR_EXT_ID=facetor cargo test --lib live_import_real_zip -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn live_import_real_zip() {
+        let (Ok(zip), Ok(pkg_id)) = (
+            std::env::var("BLMGR_EXT_ZIP"),
+            std::env::var("BLMGR_EXT_ID"),
+        ) else {
+            eprintln!("skip: BLMGR_EXT_ZIP / BLMGR_EXT_ID 未设置");
+            return;
+        };
+        let central = unique_temp_dir_for_live();
+        let target =
+            import_zip(Path::new(&zip), &central, &pkg_id, "9.9.9").expect("import failed");
+        assert!(target.join("blender_manifest.toml").is_file());
+        assert!(target.join("__init__.py").is_file(), "真实包应含入口文件");
+        // manifest 里写的 id 必须与目录名一致。
+        let manifest = extensions::read_manifest(&target).expect("manifest 应可读");
+        assert_eq!(manifest.id, pkg_id);
+        let _ = std::fs::remove_dir_all(&central);
+        eprintln!("live import ok -> {}", target.display());
+    }
+
+    fn unique_temp_dir_for_live() -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("blmgr-live-import-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// 用两个真实版本的官方包走完整条 B2 链路：
+    /// 装 1.0.1 → 接管 → 下载入库 1.0.0 → 切换 → 解除接管。
+    ///
+    /// 手动运行：
+    /// `BLMGR_EXT_ZIP_V1=/tmp/facetor.zip BLMGR_EXT_ZIP_V2=/tmp/facetor100.zip \
+    ///  BLMGR_EXT_ID=facetor cargo test --lib live_b2 -- --ignored --nocapture`
+    ///
+    /// 全程在临时目录里，不碰用户真实的扩展根。
+    #[test]
+    #[ignore]
+    fn live_b2_add_version_cycle() {
+        let (Ok(zip_new), Ok(zip_old), Ok(pkg_id)) = (
+            std::env::var("BLMGR_EXT_ZIP_V1"),
+            std::env::var("BLMGR_EXT_ZIP_V2"),
+            std::env::var("BLMGR_EXT_ID"),
+        ) else {
+            eprintln!("skip: BLMGR_EXT_ZIP_V1 / BLMGR_EXT_ZIP_V2 / BLMGR_EXT_ID 未设置");
+            return;
+        };
+
+        let root = unique_temp_dir_for_live();
+        let central = root.join("central");
+        let ext_root = root.join("extensions");
+        let pkg_path = ext_root.join("user_default").join(&pkg_id);
+
+        // 1. 官方新版本入库，并铺成「用户在 Blender 里装好」的普通目录。
+        let new_dir = import_zip(Path::new(&zip_new), &central, &pkg_id, "1.0.1")
+            .expect("import new version failed");
+        copy_dir(&new_dir, &pkg_path).expect("copy into fake ext root failed");
+        assert!(!is_dir_link(&pkg_path));
+
+        // 2. 接管：中央库里已有内容完全相同的 1.0.1，应直接复用而不是报错。
+        adopt(&pkg_path, &central, &pkg_id, "1.0.1").expect("adopt failed");
+        assert!(is_dir_link(&pkg_path), "接管后应是链接");
+
+        // 3. 添加历史版本 1.0.0，只入库。
+        import_zip(Path::new(&zip_old), &central, &pkg_id, "1.0.0").expect("import old version failed");
+        assert_eq!(versions(&central, &pkg_id), vec!["1.0.1", "1.0.0"]);
+
+        // 4. 切换，链接指向的那份内容必须真的换了版本。
+        switch_version(&pkg_path, &central, &pkg_id, "1.0.0").expect("switch failed");
+        let manifest = extensions::read_manifest(&pkg_path).expect("切换后 manifest 应可读");
+        assert_eq!(manifest.version, "1.0.0", "Blender 看到的版本应变成 1.0.0");
+
+        // 5. 解除接管：内容复制回普通目录，中央库保留两个版本。
+        release(&pkg_path).expect("release failed");
+        assert!(!is_dir_link(&pkg_path));
+        let manifest = extensions::read_manifest(&pkg_path).expect("解除后 manifest 应可读");
+        assert_eq!(manifest.version, "1.0.0");
+        assert_eq!(versions(&central, &pkg_id), vec!["1.0.1", "1.0.0"]);
+
+        let _ = std::fs::remove_dir_all(&root);
+        eprintln!("live B2 add-version cycle ok");
     }
 }

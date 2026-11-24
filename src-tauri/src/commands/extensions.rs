@@ -575,6 +575,197 @@ pub async fn list_extension_versions(
     ))
 }
 
+/// 官方站该扩展的历史版本（阶段 B2）。
+///
+/// 官方没有版本列表 API，只能解析网页；拿不到就返回空表而不是报错——
+/// 历史版本只是「多一个入口」，不该让整个版本对话框不可用。
+#[tauri::command]
+pub async fn list_extension_history(
+    state: State<'_, AppState>,
+    build_id: String,
+    repo: String,
+    pkg_id: String,
+) -> std::result::Result<Vec<crate::models::ExtensionVersion>, String> {
+    let build = installed_build(&state, &build_id).map_err(String::from)?;
+    if !is_safe_module_part(&repo) || !is_safe_module_part(&pkg_id) {
+        return Err(format!("非法的扩展标识: {repo}.{pkg_id}"));
+    }
+    extension_history_inner(&state, &build, &repo, &pkg_id)
+        .await
+        .map_err(String::from)
+}
+
+/// 查这个扩展的官网详情页地址。
+///
+/// **先读它所属仓库自己的 `index.json`**，而不是聚合目录：聚合按 id 去重、
+/// 先出现的赢，而同一个 id 可能同时出现在厂商仓库和 `blender_org` 里
+/// （实测 Bagapie 就是：`blender4_com` 给的是 blender4.com 的地址，
+/// `blender_org` 给的是 extensions.blender.org 的）。去重后留下的那条
+/// 未必是官网，拼出来的版本页就是 404，用户看到「没有历史版本」。
+async fn extension_website(
+    state: &AppState,
+    build: &Build,
+    repo: &str,
+    pkg_id: &str,
+) -> Result<Option<String>> {
+    let ext_root = extensions::resolve_ext_root(build)?;
+    let repo_for_task = repo.to_string();
+    let pkg_for_task = pkg_id.to_string();
+    let from_repo = tokio::task::spawn_blocking(move || {
+        extensions::read_repo_index(&ext_root.join(&repo_for_task))?
+            .into_iter()
+            .find(|item| item.id.eq_ignore_ascii_case(&pkg_for_task))
+            .and_then(|item| item.website)
+    })
+    .await
+    .map_err(|err| AppError::InternalError(format!("读取仓库索引失败: {err}")))?;
+    if from_repo.is_some() {
+        return Ok(from_repo);
+    }
+
+    Ok(get_extension_catalog_inner(state, build)
+        .await?
+        .into_iter()
+        .find(|item| item.id.eq_ignore_ascii_case(pkg_id))
+        .and_then(|item| item.website))
+}
+
+/// 版本历史的实际实现：给命令与「添加版本」共用，避免两条路径各自解析一遍。
+async fn extension_history_inner(
+    state: &AppState,
+    build: &Build,
+    repo: &str,
+    pkg_id: &str,
+) -> Result<Vec<crate::models::ExtensionVersion>> {
+    let Some(website) = extension_website(state, build, repo, pkg_id).await? else {
+        return Ok(Vec::new());
+    };
+    let Some(url) = extensions::version_history_url(&website) else {
+        // 不是官网的页面（厂商自己的站），没有可解析的版本历史。
+        tracing::debug!(pkg = %pkg_id, website = %website, "非官方站点，跳过版本历史");
+        return Ok(Vec::new());
+    };
+
+    let proxy = state.settings.lock().unwrap().proxy.clone();
+    let client = build_client(&proxy, "blender-launcher-v3", CATALOG_TIMEOUT)?;
+    let response = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|err| AppError::Network(format!("获取版本历史失败: {err}")))?;
+    if !response.status().is_success() {
+        return Err(AppError::Network(format!(
+            "获取版本历史失败: HTTP {}",
+            response.status()
+        )));
+    }
+    let body = response
+        .text()
+        .await
+        .map_err(|err| AppError::Network(format!("读取版本历史响应失败: {err}")))?;
+
+    let versions = extensions::parse_version_history(&body);
+    tracing::info!(pkg = %pkg_id, count = versions.len(), "extension version history");
+    Ok(versions)
+}
+
+/// 从官方站下载一个历史版本，存进中央库；已接管时顺手切换过去（阶段 B2）。
+///
+/// 只往中央库写：下载或校验失败都不会影响当前生效的那一版。
+#[tauri::command]
+pub async fn add_extension_version(
+    state: State<'_, AppState>,
+    app_handle: tauri::AppHandle,
+    build_id: String,
+    repo: String,
+    pkg_id: String,
+    version: String,
+) -> std::result::Result<ExtensionManageView, String> {
+    let (ext_root, central_root) = manage_context(&state, &build_id).map_err(String::from)?;
+    if !settings_enabled(&state) {
+        return Err("中央库未启用，请先在设置里开启".to_string());
+    }
+    if !is_safe_module_part(&repo) || !is_safe_module_part(&pkg_id) {
+        return Err(format!("非法的扩展标识: {repo}.{pkg_id}"));
+    }
+
+    // 版本下载地址以官方页面为准，不接受前端直接给 URL：
+    // 否则这个命令就成了「任意 URL 下载到本地」的入口。
+    let build = installed_build(&state, &build_id).map_err(String::from)?;
+    let history = extension_history_inner(&state, &build, &repo, &pkg_id)
+        .await
+        .map_err(String::from)?;
+    let entry = history
+        .into_iter()
+        .find(|entry| entry.version == version)
+        .ok_or_else(|| format!("官方站找不到 {pkg_id} 的 {version} 版本"))?;
+
+    let cache = state.settings.lock().unwrap().cache_dir.clone();
+    let download_dir = cache.join("extensions");
+    std::fs::create_dir_all(&download_dir).map_err(|err| err.to_string())?;
+    let filename = crate::service::downloader::filename_from_url(&entry.archive_url);
+    if filename.is_empty() || filename.contains("..") {
+        return Err(format!("下载文件名非法: {filename:?}"));
+    }
+    // 带上版本号，避免同一扩展不同版本互相覆盖缓存。
+    let zip_path = download_dir.join(format!("{pkg_id}-{version}-{filename}"));
+
+    if !zip_path.is_file() {
+        download_to(&state, &entry.archive_url, &zip_path).await?;
+    }
+    match entry.archive_hash.as_deref() {
+        Some(expected) => verify_hash(&zip_path, expected)?,
+        None => tracing::warn!(pkg = %pkg_id, version = %version, "历史版本没有哈希，跳过校验"),
+    }
+
+    let pkg_id_for_task = pkg_id.clone();
+    let version_for_task = version.clone();
+    let central_for_task = central_root.clone();
+    tokio::task::spawn_blocking(move || {
+        crate::service::extension_central::import_zip(
+            &zip_path,
+            &central_for_task,
+            &pkg_id_for_task,
+            &version_for_task,
+        )
+    })
+    .await
+    .map_err(|err| format!("导入任务失败: {err}"))?
+    .map_err(String::from)?;
+
+    // 已接管的话直接切过去——用户点「添加这一版」的意图就是用它。
+    // 没接管时只入库，等用户在列表里切换或先接管当前版本。
+    let pkg_path = ext_root.join(&repo).join(&pkg_id);
+    let central_path = if crate::service::extension_central::is_dir_link(&pkg_path) {
+        let central_for_task = central_root.clone();
+        let pkg_id_for_task = pkg_id.clone();
+        let version_for_task = version.clone();
+        let marker = tokio::task::spawn_blocking(move || {
+            crate::service::extension_central::switch_version(
+                &pkg_path,
+                &central_for_task,
+                &pkg_id_for_task,
+                &version_for_task,
+            )
+        })
+        .await
+        .map_err(|err| format!("切换任务失败: {err}"))?
+        .map_err(String::from)?;
+        Some(marker.central_path.display().to_string())
+    } else {
+        None
+    };
+
+    let _ = app_handle.emit("extension_changed", ());
+    Ok(ExtensionManageView {
+        pkg_id: pkg_id.clone(),
+        repo,
+        managed: central_path.is_some(),
+        central_path,
+        versions: central_versions(&state, &pkg_id),
+    })
+}
+
 /// 阶段 B 的管理结果。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExtensionManageView {

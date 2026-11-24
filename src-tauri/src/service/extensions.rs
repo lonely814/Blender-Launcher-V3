@@ -1,7 +1,7 @@
 use crate::error::{AppError, Result};
 use crate::models::extension::{
-    CatalogItem, ExtensionManifest, ExtensionScan, InstalledExtension, LegacyAddon,
-    ManagedMetadata, MANAGED_MARKER, MANAGED_SCHEMA_VERSION,
+    CatalogItem, ExtensionManifest, ExtensionScan, ExtensionVersion, InstalledExtension,
+    LegacyAddon, ManagedMetadata, MANAGED_MARKER, MANAGED_SCHEMA_VERSION,
 };
 use crate::models::Build;
 use std::collections::BTreeMap;
@@ -451,6 +451,124 @@ pub fn read_all_repo_indexes(root: &Path) -> Vec<CatalogItem> {
     items
 }
 
+/// 官方站「Version History」页地址。
+///
+/// 目录 API 只给每个扩展的**最新**版本；历史版本只能从网页拿。
+/// `website` 字段已经是由扩展类型决定的详情页
+/// （`/add-ons/<slug>/`、`/themes/<slug>/`、`/asset-libraries/<slug>/`），
+/// 直接拼 `versions/` 即可，不必自己推 slug。
+pub fn version_history_url(website: &str) -> Option<String> {
+    let trimmed = website.trim().trim_end_matches('/');
+    if !(trimmed.starts_with("https://extensions.blender.org/")
+        || trimmed.starts_with("http://extensions.blender.org/"))
+    {
+        return None;
+    }
+    Some(format!("{trimmed}/versions/"))
+}
+
+/// 从版本历史页解析历史版本列表（按版本号降序）。
+///
+/// 页面结构（2026-11 实测）：每个版本是一个
+/// `<details id="v101">`，里面 `<span class="version-string">1.0.1</span>`
+/// 给版本号，另有一处 `<a href="/download/sha256:<hash>/<file>.zip?...">`
+/// 给下载地址——链接里的哈希段就是 sha256，不必额外查。
+///
+/// 解析不出来就返回空表：历史列表只是「多一个可选入口」，
+/// 拿不到时用户仍能从文件安装，不该让整个对话框报错。
+pub fn parse_version_history(html: &str) -> Vec<ExtensionVersion> {
+    use soup::{prelude::*, Soup};
+
+    let soup = Soup::new(html);
+
+    // 逐个 `<details>` 处理。Soup 的查询只能从文档根开始，
+    // 所以按 `id` 前缀筛，而不是真的遍历 details 子树。
+    let mut versions = Vec::new();
+    for details in soup.tag("details").find_all() {
+        let Some(id) = details.get("id") else {
+            continue;
+        };
+        if !id.starts_with('v') {
+            continue;
+        }
+        let block = Soup::new(&details.display());
+
+        let Some(version) = block
+            .tag("span")
+            .find_all()
+            .find(|node| {
+                node.get("class")
+                    .unwrap_or_default()
+                    .contains("version-string")
+            })
+            .map(|node| node.text().trim().to_string())
+            .filter(|text| !text.is_empty())
+        else {
+            continue;
+        };
+
+        // 只认版本号自己的下载链接：页面顶部还有一条同一个包的当前版本链接，
+        // 但它在 details 之外，已经因为按 details 切块被排除掉了。
+        let Some((archive_url, archive_hash)) = block
+            .tag("a")
+            .find_all()
+            .filter_map(|anchor| anchor.get("href"))
+            .find_map(|href| {
+                let hash = hash_from_download_url(&href)?;
+                Some((absolute_archive_url(&href), Some(hash)))
+            })
+        else {
+            continue;
+        };
+
+        versions.push(ExtensionVersion {
+            version,
+            archive_url,
+            archive_hash,
+        });
+    }
+
+    versions.sort_by(|left, right| compare_versions(&right.version, &left.version));
+    versions.dedup_by(|left, right| left.version == right.version);
+    versions
+}
+
+/// 从 `.../download/sha256:<hex>/<name>.zip` 取出 `sha256:<hex>`。
+fn hash_from_download_url(url: &str) -> Option<String> {
+    let marker = "/download/";
+    let rest = url.split_once(marker)?.1;
+    let token = rest.split('/').next()?;
+    let hex = token.strip_prefix("sha256:")?;
+    if hex.len() != 64 || !hex.chars().all(|ch| ch.is_ascii_hexdigit()) {
+        return None;
+    }
+    Some(format!("sha256:{hex}"))
+}
+
+/// 页面里的下载链接是站内相对路径，补成绝对地址再交给下载器。
+fn absolute_archive_url(href: &str) -> String {
+    if href.starts_with("http://") || href.starts_with("https://") {
+        href.to_string()
+    } else {
+        format!("https://extensions.blender.org{}", href)
+    }
+}
+
+/// 语义化版本比较，非语义化时退回字符串比较。
+///
+/// 与 `src/lib/version.ts` 的 `compareVersions` 保持同一套语义：
+/// 数字段按数值比，缺的段按 0，预发布标识符按字典序。
+pub fn compare_versions(left: &str, right: &str) -> std::cmp::Ordering {
+    fn parse(value: &str) -> Option<semver::Version> {
+        let cleaned = value.trim().trim_start_matches('v');
+        semver::Version::parse(cleaned).ok()
+    }
+    match (parse(left), parse(right)) {
+        (Some(left), Some(right)) => left.cmp(&right),
+        _ => left.trim().cmp(right.trim()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -556,6 +674,103 @@ bl_info = {
             info.get("category").and_then(|value| value.as_str()),
             Some("{Object}")
         );
+    }
+
+    #[test]
+    fn test_version_history_url_only_accepts_extension_site() {
+        assert_eq!(
+            version_history_url("https://extensions.blender.org/add-ons/facetor/").as_deref(),
+            Some("https://extensions.blender.org/add-ons/facetor/versions/")
+        );
+        // 末尾少了斜杠也能拼对。
+        assert_eq!(
+            version_history_url("https://extensions.blender.org/themes/carbon-fiber-black")
+                .as_deref(),
+            Some("https://extensions.blender.org/themes/carbon-fiber-black/versions/")
+        );
+        // 别的站点一律不拼：这个 URL 会被交给 HTTP 客户端去取。
+        assert_eq!(
+            version_history_url("https://github.com/alaneoh/facetor"),
+            None
+        );
+        assert_eq!(version_history_url(""), None);
+    }
+
+    /// 取自 2026-11-24 实测的 `add-ons/facetor/versions/` 页面结构（已裁剪）。
+    #[test]
+    fn test_parse_version_history_real_markup() {
+        let html = r##"
+<html><body>
+<div class="btn-col">
+  <a href="/download/sha256:fdc66849fbc17be438d609d2f6c3d8058ae0defb8a71110ca5e9bfc5cb752910/add-on-facetor-v1.0.1.zip?repository=x">Download</a>
+</div>
+<details id="v101" open>
+  <summary>
+    <span class="version-string">1.0.1</span>
+    <span class="show-on-collapse blender-version">Blender 4.2 LTS</span>
+  </summary>
+  <div class="btn-col">
+    <a href="/download/sha256:fdc66849fbc17be438d609d2f6c3d8058ae0defb8a71110ca5e9bfc5cb752910/add-on-facetor-v1.0.1.zip?repository=%2Fapi%2Fv1%2Fextensions%2F" download="x.zip">Download</a>
+  </div>
+</details>
+<details id="v100">
+  <summary><span class="version-string">1.0.0</span></summary>
+  <div class="btn-col">
+    <a href="/download/sha256:c3c65f561df27c1abc4ffb282e72f0521753cb1bfbdf96d3759545b8ec27ef10/add-on-facetor-v1.0.0.zip" download="y.zip">Download</a>
+  </div>
+</details>
+</body></html>
+"##;
+        let versions = parse_version_history(html);
+        assert_eq!(versions.len(), 2, "两个 details 各一个版本");
+        assert_eq!(versions[0].version, "1.0.1", "按版本降序");
+        assert_eq!(versions[1].version, "1.0.0");
+        assert_eq!(
+            versions[0].archive_hash.as_deref(),
+            Some("sha256:fdc66849fbc17be438d609d2f6c3d8058ae0defb8a71110ca5e9bfc5cb752910")
+        );
+        // 相对链接必须补成绝对地址，否则下载器会拿到一个无 host 的 URL。
+        assert!(versions[0]
+            .archive_url
+            .starts_with("https://extensions.blender.org/download/sha256:"));
+    }
+
+    #[test]
+    fn test_parse_version_history_ignores_broken_blocks() {
+        // 没有 version-string、没有下载链接、id 不是 v 开头：全部跳过，不 panic。
+        let html = r#"
+<details id="v1"><summary><span>1</span></summary></details>
+<details id="random"><summary><span class="version-string">9.9</span></summary></details>
+<details id="v2"><summary><span class="version-string">2.0</span></summary>
+  <a href="/download/notahash/pkg.zip">x</a></details>
+"#;
+        assert!(parse_version_history(html).is_empty());
+        assert!(parse_version_history("").is_empty());
+    }
+
+    #[test]
+    fn test_hash_from_download_url() {
+        assert_eq!(
+            hash_from_download_url(
+                "https://extensions.blender.org/download/sha256:fdc66849fbc17be438d609d2f6c3d8058ae0defb8a71110ca5e9bfc5cb752910/a.zip"
+            )
+            .as_deref(),
+            Some("sha256:fdc66849fbc17be438d609d2f6c3d8058ae0defb8a71110ca5e9bfc5cb752910")
+        );
+        // 不是 sha256 段、长度不对、缺段，一律 None。
+        assert_eq!(hash_from_download_url("/download/md5:abc/a.zip"), None);
+        assert_eq!(hash_from_download_url("/download/sha256:abc/a.zip"), None);
+        assert_eq!(hash_from_download_url("https://example.com/a.zip"), None);
+    }
+
+    #[test]
+    fn test_compare_versions_semver_and_fallback() {
+        use std::cmp::Ordering::*;
+        assert_eq!(compare_versions("1.0.10", "1.0.9"), Greater);
+        assert_eq!(compare_versions("1.0.0", "1.0.0"), Equal);
+        assert_eq!(compare_versions("v2.0.0", "1.99.99"), Greater);
+        // 非语义化版本号退回字符串比较，不 panic。
+        assert_eq!(compare_versions("beta", "alpha"), Greater);
     }
 
     #[test]
@@ -754,5 +969,29 @@ mod live_index_tests {
         }
         println!("compared = {compared}, updatable = {updatable}");
         assert!(compared > 0, "至少应有一个已装扩展能在目录里找到");
+    }
+
+    /// 用真实抓下来的版本历史页验证解析器，而不是只用裁剪过的片段。
+    ///
+    /// 手动运行：把页面存成文件后
+    /// `BLMGR_VERSION_PAGE=/tmp/facetor_versions.html cargo test --lib live_version_page -- --ignored --nocapture`
+    #[test]
+    #[ignore = "需要一份真实保存的官方版本历史页（BLMGR_VERSION_PAGE）"]
+    fn live_parse_version_page() {
+        let Ok(path) = std::env::var("BLMGR_VERSION_PAGE") else {
+            eprintln!("skip: BLMGR_VERSION_PAGE 未设置");
+            return;
+        };
+        let html = std::fs::read_to_string(&path).expect("读不到页面文件");
+        let versions = parse_version_history(&html);
+        for entry in &versions {
+            println!("{} <- {}", entry.version, entry.archive_url);
+        }
+        println!("parsed {} versions", versions.len());
+        assert!(!versions.is_empty(), "真实页面必须解析出至少一个版本");
+        assert!(
+            versions.iter().all(|entry| entry.archive_hash.is_some()),
+            "每条历史版本都应带 sha256（下载后要校验）"
+        );
     }
 }

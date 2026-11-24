@@ -219,6 +219,14 @@ export interface ExtensionManage {
 	versions: string[];
 }
 
+/** 官方站版本历史页里的一个历史版本（阶段 B2）。 */
+export interface ExtensionVersion {
+	version: string;
+	archive_url: string;
+	/** `sha256:<hex>`，下载后据此校验。 */
+	archive_hash: string | null;
+}
+
 /** 官方目录条目（L2 本地 index.json / L3 联网）。 */
 export interface CatalogItem {
 	id: string;

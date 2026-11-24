@@ -90,8 +90,8 @@ pub(crate) async fn rescan(state: &AppState, app_handle: &tauri::AppHandle) -> R
     }
 
     *state.builds.lock().unwrap() = builds;
-    mark_updates(&state);
-    sync_blinfo_favorites(&state);
+    mark_updates(state);
+    sync_blinfo_favorites(state);
     state.persist_builds();
     let _ = app_handle.emit("library_scanned", ());
     Ok(())

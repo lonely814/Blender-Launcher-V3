@@ -141,7 +141,7 @@ mod tests {
     fn test_build_command_args_order() {
         let args = Launcher::build_command_args(
             &["--factory-startup".to_string()],
-            Some(&["--debug".to_string()].as_slice()),
+            Some(["--debug".to_string()].as_slice()),
             Some(Path::new("C:/scenes/test.blend")),
             true,
         );

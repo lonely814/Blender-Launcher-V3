@@ -62,7 +62,6 @@ impl Downloader {
             &task,
             &url,
             &dest,
-            &part_path,
             resume_from,
             control,
             proxy,
@@ -92,12 +91,15 @@ async fn run_download(
     task: &Arc<Mutex<DownloadTask>>,
     url: &str,
     dest: &Path,
-    part_path: &Path,
     resume_from: u64,
     mut control: watch::Receiver<ControlAction>,
     proxy: &crate::models::ProxySettings,
     on_update: &mut (impl FnMut(DownloadTask) + Send),
 ) -> Result<Flow> {
+    // part 路径由 dest 唯一决定，不再作为参数传入——多一个参数就多一处
+    // 调用方可能传错的机会，而它们本来就不可能不一致。
+    let part_path = part_file_path(dest);
+    let part_path = part_path.as_path();
     // 与 scraper 共用同一个构造点，保证代理配置对爬取和下载同时生效。
     let client = crate::service::http::build_client(proxy, USER_AGENT, CONNECT_TIMEOUT)?;
 

@@ -95,6 +95,28 @@ fn main() {
             blender_launcher_lib::single_instance::start_watchdog(handle, guard);
             Ok(())
         })
+        // 点 X 收进托盘而不是退出（对齐原版 window.py closeEvent 的 hide() 分支）。
+        //
+        // 两个条件都必须满足才拦截：
+        // 1. show_tray_icon —— 每次事件都重新读，设置页关掉托盘后 X 应立刻恢复为退出，
+        //    不能沿用启动时的快照；
+        // 2. 托盘确实建出来了 —— 图标资源缺失时 setup_tray 会提前返回（tray.rs 的
+        //    warn 分支），此时隐藏窗口等于制造一个只能靠任务管理器结束的孤儿进程。
+        //
+        // 真正退出走托盘菜单的 Quit → app.exit(0)，不经过这里。
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                let app = window.app_handle();
+                let wants_tray = window
+                    .try_state::<AppState>()
+                    .map(|state| state.settings.lock().unwrap().show_tray_icon)
+                    .unwrap_or(false);
+                if wants_tray && app.tray_by_id("main-tray").is_some() {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             commands::builds::get_builds,
             commands::builds::refresh_builds,

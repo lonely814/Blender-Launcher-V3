@@ -84,7 +84,7 @@ pub async fn is_winget_registered() -> Result<bool, String> {
             .args(["query", ARP_KEY])
             .output()
             .map_err(|err| err.to_string())?;
-        return Ok(output.status.success());
+        Ok(output.status.success())
     }
     #[cfg(not(target_os = "windows"))]
     {

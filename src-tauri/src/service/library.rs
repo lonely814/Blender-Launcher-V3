@@ -352,6 +352,10 @@ fn resolve_fork(entry: &BlinfoEntry, category: Option<BuildFork>) -> BuildFork {
     }
 }
 
+// 9 个参数都是扫描目录时就地解析出来的独立事实，没有谁是另一个的派生。
+// 拆成结构体会多出一个只在这里用得上的类型，四个调用点也都要跟着改写；
+// 相比之下这里的参数列表本身就是最直白的表达。
+#[allow(clippy::too_many_arguments)]
 fn build_local(
     dir_name: &str,
     path: &Path,
@@ -408,31 +412,6 @@ fn dir_modified_at(path: &Path) -> Option<DateTime<Utc>> {
 mod tests {
     use super::*;
     use crate::service::scraper::archive_stem;
-
-    fn make_build(
-        id: &str,
-        branch: BuildBranch,
-        fork: BuildFork,
-        url: &str,
-        installed: bool,
-    ) -> Build {
-        Build {
-            id: id.to_string(),
-            version: "4.5.0".to_string(),
-            branch,
-            fork,
-            platform: Platform::Windows,
-            architecture: Architecture::X64,
-            url: url.to_string(),
-            size_bytes: 100,
-            release_date: Utc::now(),
-            release_notes_url: None,
-            breaking_changes: None,
-            is_installed: installed,
-            install_path: None,
-            update_build_id: None,
-        }
-    }
 
     #[test]
     fn test_blinfo_branch_and_fork_resolution() {

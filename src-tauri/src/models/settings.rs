@@ -96,23 +96,19 @@ impl Default for ProxySettings {
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum ProxyKind {
+    #[default]
     Http,
     Https,
 }
 
-impl Default for ProxyKind {
-    fn default() -> Self {
-        Self::Http
-    }
-}
-
 /// 主界面布局。只影响外壳与行密度，数据与交互完全共用。
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum Layout {
+    #[default]
     Classic,
     Wide,
     /// Wide + 右侧 280px 详情面板（三段式）。
@@ -120,26 +116,15 @@ pub enum Layout {
 }
 
 /// 强调色板。浅色主题下的取值一律压暗一档保证对比度。
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum Accent {
+    #[default]
     Orange,
     Blue,
     Green,
     Purple,
     Rose,
-}
-
-impl Default for Accent {
-    fn default() -> Self {
-        Self::Orange
-    }
-}
-
-impl Default for Layout {
-    fn default() -> Self {
-        Self::Classic
-    }
 }
 
 fn default_true() -> bool {

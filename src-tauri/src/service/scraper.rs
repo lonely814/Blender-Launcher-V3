@@ -935,6 +935,7 @@ mod tests {
             parse_fork_asset("Bforartists-5.2.3-Linux.tar.xz", BuildFork::Bforartists).unwrap();
         assert_eq!(version, "5.2.3");
         assert_eq!(platform, Platform::Linux);
+        assert_eq!(arch, Architecture::X64);
 
         let (version, platform, arch) =
             parse_fork_asset("Bforartists-5.2.3-MacSilicon.zip", BuildFork::Bforartists).unwrap();
@@ -946,6 +947,7 @@ mod tests {
             parse_fork_asset("Bforartists-5.2.3-Mac-Silicon.dmg", BuildFork::Bforartists).unwrap();
         assert_eq!(version, "5.2.3");
         assert_eq!(platform, Platform::Macos);
+        assert_eq!(arch, Architecture::Arm64);
 
         // 安装器 / 文档不解析。
         assert!(parse_fork_asset("Install_Bforartists5_523.exe", BuildFork::Bforartists).is_none());

@@ -58,10 +58,12 @@
 ```bash
 npm install
 npm run tauri:dev      # 开发，热重载
-npm run tauri:build    # 打包 MSI / NSIS
+npm run tauri:build    # 产出单文件 exe（bundle.active = false）
 ```
 
-产物在 `src-tauri/target/release/bundle/`。
+产物在 `src-tauri/target/release/blender-launcher-v3.exe`，约 16 MB。
+WebView2 用系统运行时，不打包进 exe；Win10 1803 之前的机器需要先装
+WebView2 Runtime。
 
 **其他命令**
 
@@ -73,6 +75,33 @@ cargo test --manifest-path src-tauri/Cargo.toml
 
 > 构建前先结束正在运行的实例。Windows 会锁住 exe，`tauri build` 会以
 > `failed to remove file ... (os error 5)` 失败。
+
+## 便携模式
+
+exe 旁边放一个名为 `portable` 的空文件，配置、缓存、构建库就全部落在
+exe 同级目录，整个文件夹可以拷走：
+
+```
+Blender Launcher/
+├── blender-launcher-v3.exe
+├── portable              ← 空标记文件
+├── settings.json         ← 自动生成
+├── cache/                ← SQLite 缓存、单实例锁
+└── builds/               ← 构建库
+    ├── stable/  daily/  experimental/
+    ├── bforartists/  upbge-stable/  upbge-weekly/
+    ├── custom/  template/
+```
+
+判定依据是**标记文件是否存在**，而不是「exe 所在目录可写」——后者会随
+UAC 和 Program Files 权限漂移，同一个 exe 换台机器数据位置就变了。
+没有标记文件时走系统目录：配置在 `%APPDATA%\BlenderLauncher\`，缓存在
+`%LOCALAPPDATA%\BlenderLauncher\`，默认库在
+`%LOCALAPPDATA%\Blender Launcher\`。
+
+`builds/` 下 8 个子目录在首次启动时就建好（含 `template`，Blender 的启动
+模板目录），与原版 `create_library_folders()` 一致。
+
 
 ---
 

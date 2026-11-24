@@ -12,6 +12,21 @@ fn main() {
     // 启动时从 settings.json 加载设置（缺失/损坏回退默认值）。
     let settings = blender_launcher_lib::service::settings::load_settings();
 
+    // 便携模式：exe 旁有 `portable` 标记文件时，配置/缓存/库全部落在 exe 同级。
+    // 打一行日志，用户能从控制台一眼确认数据会被写到哪。
+    if let Some(root) = blender_launcher_lib::service::settings::portable_root() {
+        tracing::info!(path = %root.display(), "portable mode");
+    }
+
+    // 建库骨架：原版启动即创建全部 8 个子目录（含 template）。
+    // 幂等，失败只记警告——目录不可写时应用仍应能打开，
+    // 用户可以在设置里改到别的路径。
+    if let Err(err) =
+        blender_launcher_lib::service::settings::create_library_folders(&settings.install_dir)
+    {
+        tracing::warn!(error = %err, path = %settings.install_dir.display(), "failed to create library folders");
+    }
+
     // 单实例：已有实例在跑时，只请求它露脸然后退出。
     // 放在最前面，避免第二个进程去扫库、抢热键、写同一个 SQLite。
     let Some(guard) =

@@ -160,14 +160,12 @@ pub enum Theme {
 
 impl Default for Settings {
     fn default() -> Self {
+        // 路径统一走 service::settings 的解析函数：便携模式判定
+        // （exe 旁有 portable 标记）只在那里实现一次，避免这里的默认值
+        // 与 settings_file_path 走不同分支、把数据劈成两半。
         Self {
-            install_dir: dirs::data_local_dir()
-                .unwrap_or_default()
-                .join("BlenderLauncher")
-                .join("builds"),
-            cache_dir: dirs::cache_dir()
-                .unwrap_or_default()
-                .join("BlenderLauncher"),
+            install_dir: crate::service::settings::default_library_root(),
+            cache_dir: crate::service::settings::cache_root(),
             max_concurrent_downloads: 2,
             auto_check_updates: true,
             update_check_interval_hours: 24,

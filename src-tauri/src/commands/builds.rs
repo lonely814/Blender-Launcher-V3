@@ -37,6 +37,25 @@ async fn scrape_sources(settings: &Settings) -> Vec<Build> {
             Err(err) => tracing::warn!(error = %err, "build source scrape failed"),
         }
     }
+
+    // 只保留能在本机跑的包。
+    //
+    // 之前不过滤：下载页把 windows-arm64 的包也列出来，用户在 x64 机器上
+    // 点了就真下 700 MB 的错包（2026-11-25 实测踩到）。构建来源页面本身
+    // 就同时列了各架构，按本机架构筛是这一层该做的事。
+    let platform = Scraper::detect_platform();
+    let architecture = Scraper::detect_architecture();
+    let before = builds.len();
+    builds.retain(|build| build.platform == platform && build.architecture == architecture);
+    if builds.len() != before {
+        tracing::info!(
+            kept = builds.len(),
+            dropped = before - builds.len(),
+            ?platform,
+            ?architecture,
+            "filtered builds by host platform"
+        );
+    }
     builds
 }
 

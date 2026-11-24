@@ -173,6 +173,7 @@ fn main() {
             commands::settings::update_settings,
             commands::settings::set_first_run_done,
             commands::settings::pick_directory,
+            commands::app_update::check_app_update,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

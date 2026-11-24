@@ -15,7 +15,7 @@
 | 能力 | 说明 |
 |---|---|
 | 版本抓取 | Stable / Daily / Experimental / Patch，外加 Bforartists、UPBGE、UPBGE Weekly |
-| 下载管理 | 并发下载、暂停/恢复/取消、进度与 ETA、断点续传 |
+| 下载管理 | 并发下载、暂停/恢复/取消、进度与 ETA、断点续传、清华 TUNA 镜像、镜像内容按官方 sha256 校验 |
 | 本地库扫描 | 识别 `.blinfo`，未知目录弹 Build Entry Creator 补全元数据 |
 | 更新检测 | 比对已装版本与远端，行内出现更新图标，点击下载新版 |
 | 启动与实例 | 启动/调试启动、运行中实例计数、`.blend` 文件关联与拖放打开 |

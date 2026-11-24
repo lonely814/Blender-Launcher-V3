@@ -34,6 +34,8 @@ const zh: Record<keyof typeof en, string> = {
 	'action.running': '运行中',
 	'action.reload': '重新加载',
 	'action.check': '检查',
+	'action.repository': '打开项目主页',
+	'transfer.title': '正在下载，点击查看详情',
 	'action.settings': '设置',
 	'action.update': '更新到最新版本',
 	'action.runningInstances': '运行中的实例',
@@ -99,6 +101,13 @@ const zh: Record<keyof typeof en, string> = {
 	'settings.general.registerHint': '双击 .blend 文件时由启动器打开，先选构建再打开文件。',
 	'settings.general.registered': '已关联',
 	'settings.general.behavior': '行为',
+	'settings.general.about': '关于',
+	'settings.general.appVersion': '当前版本',
+	'settings.general.checkUpdate': '检查更新',
+	'settings.general.checkingUpdate': '检查中…',
+	'settings.general.updateAvailable': '有新版本 {latest}（当前 {current}）。',
+	'settings.general.upToDate': '已是最新版本 {current}。',
+	'settings.general.openRelease': '前往下载',
 	'settings.autoCheck': '自动检查新版本',
 	'settings.showUpdate': '在已安装的构建上显示更新按钮',
 	'settings.notify': '有新版本时通知',
@@ -154,6 +163,12 @@ const zh: Record<keyof typeof en, string> = {
 	'settings.connection.proxyHint':
 		'密码以明文保存在 settings.json 中。代理不需要密码时请留空。',
 	'settings.connection.socksHint': '不支持 SOCKS 代理。',
+	'settings.connection.mirror': '下载镜像',
+	'settings.connection.mirrorHint':
+		'只替换下载地址，列表仍从官方站读。镜像只镜像正式版（stable），每日构建等自动回退官方源。',
+	'settings.connection.mirrorOfficial': '官方源',
+	'settings.connection.mirrorTuna': '清华 TUNA',
+	'settings.connection.mirrorNote': '镜像内容仍按官方发布的 sha256 校验，校验不过会拒绝安装。',
 
 	// settings — builds
 	'settings.builds.sources': '构建来源',

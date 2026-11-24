@@ -1,3 +1,4 @@
+pub mod app_update;
 pub mod build_entry;
 pub mod builds;
 pub mod downloads;

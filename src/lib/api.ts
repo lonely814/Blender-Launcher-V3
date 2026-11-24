@@ -2,6 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import type {
 	Build,
 	BuildFilter,
+	AppUpdate,
 	BuildInfoInput,
 	CatalogItem,
 	CleanupResult,
@@ -336,4 +337,11 @@ export async function addExtensionVersion(
 
 export async function openExtensionPage(url: string): Promise<void> {
 	return invoke('open_extension_page', { url });
+}
+
+// ---------------------------------------------------------------- 程序自身更新
+
+/** 检查本程序是否有新版本。只查 GitHub Releases，不自动下载。 */
+export async function checkAppUpdate(): Promise<AppUpdate> {
+	return invoke<AppUpdate>('check_app_update');
 }

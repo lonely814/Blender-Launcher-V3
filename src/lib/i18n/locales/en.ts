@@ -28,6 +28,8 @@ export default {
 	'action.running': 'Running',
 	'action.reload': 'Reload',
 	'action.check': 'Check',
+	'action.repository': 'Open project page',
+	'transfer.title': 'Downloads in progress — click for details',
 	'action.settings': 'Settings',
 	'action.update': 'Update Blender to the latest version',
 	'action.runningInstances': 'Running instances',
@@ -94,6 +96,13 @@ export default {
 		'Opens .blend files with Blender Launcher so you can pick a build first.',
 	'settings.general.registered': 'Registered',
 	'settings.general.behavior': 'Behaviour',
+	'settings.general.about': 'About',
+	'settings.general.appVersion': 'Version',
+	'settings.general.checkUpdate': 'Check for updates',
+	'settings.general.checkingUpdate': 'Checking…',
+	'settings.general.updateAvailable': 'Version {latest} is available (you have {current}).',
+	'settings.general.upToDate': 'You are on the latest version ({current}).',
+	'settings.general.openRelease': 'Download',
 	'settings.autoCheck': 'Check for new builds automatically',
 	'settings.showUpdate': 'Show the update button on installed builds',
 	'settings.notify': 'Notify when new builds appear',
@@ -151,6 +160,12 @@ export default {
 	'settings.connection.proxyHint':
 		'The password is stored as plain text in settings.json. Leave it empty if your proxy does not require one.',
 	'settings.connection.socksHint': 'SOCKS proxies are not supported.',
+	'settings.connection.mirror': 'Download mirror',
+	'settings.connection.mirrorHint':
+		'Replaces the download URL only; the build list still comes from the official site. Only stable releases are mirrored — daily builds fall back to the official source.',
+	'settings.connection.mirrorOfficial': 'Official',
+	'settings.connection.mirrorTuna': 'Tsinghua TUNA',
+	'settings.connection.mirrorNote': 'Mirrored content is still checked against the official sha256; a mismatch is refused.',
 
 	// settings — builds
 	'settings.builds.sources': 'Build sources',

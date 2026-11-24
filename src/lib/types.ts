@@ -108,7 +108,12 @@ export interface Settings {
 	enable_extension_central: boolean;
 	/** 中央库根目录。`null` = `<数据目录>/extensions`。 */
 	extension_central_dir: string | null;
+	/** 下载加速镜像。`null` = 直连官方。 */
+	download_mirror: DownloadMirror | null;
 }
+
+/** 支持的下载镜像站。 */
+export type DownloadMirror = 'tuna';
 
 /** 只支持 HTTP/HTTPS：SOCKS 需要 reqwest 的 socks feature，本实现不引入。 */
 export interface ProxySettings {
@@ -244,4 +249,15 @@ export interface CatalogItem {
 	maintainer: string | null;
 	license: string[];
 	tags: string[];
+}
+
+/** 本程序自身的更新检查结果（`check_app_update`）。 */
+export interface AppUpdate {
+	current: string;
+	latest: string;
+	update_available: boolean;
+	/** 发布页地址。 */
+	html_url: string;
+	/** 发布说明（Markdown 原文）。 */
+	notes: string;
 }

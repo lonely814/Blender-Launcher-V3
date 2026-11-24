@@ -65,6 +65,41 @@ pub struct Settings {
     /// 中央库根目录。`None` = `<data_root>/extensions`，随便携模式走。
     #[serde(default)]
     pub extension_central_dir: Option<PathBuf>,
+    /// 下载加速镜像。`None` = 直连官方。
+    ///
+    /// 只影响下载地址，不影响爬取：列表仍从官方站读，否则镜像的目录结构
+    /// 一变就识别不出有哪些构建可下。
+    #[serde(default)]
+    pub download_mirror: Option<DownloadMirror>,
+}
+
+/// 支持替换下载源的镜像站。
+///
+/// 当前只有清华 TUNA，且它只镜像 `release/`（stable 正式版）。
+/// daily / experimental / patch 在 builder CDN 上，镜像站没有，
+/// 选中镜像时这类构建自动回退官方地址——否则用户会得到 404。
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum DownloadMirror {
+    Tuna,
+}
+
+impl DownloadMirror {
+    /// 把官方下载地址改写成镜像地址；不适用时返回 `None`。
+    ///
+    /// `https://download.blender.org/release/Blender4.5/blender-4.5.0-windows-x64.zip`
+    /// → `https://mirrors.tuna.tsinghua.edu.cn/blender/release/Blender4.5/blender-4.5.0-windows-x64.zip`
+    pub fn rewrite(self, url: &str) -> Option<String> {
+        const OFFICIAL: &str = "https://download.blender.org/release/";
+        match self {
+            Self::Tuna => {
+                let rest = url.strip_prefix(OFFICIAL)?;
+                Some(format!(
+                    "https://mirrors.tuna.tsinghua.edu.cn/blender/release/{rest}"
+                ))
+            }
+        }
+    }
 }
 
 fn default_language() -> String {
@@ -183,6 +218,49 @@ impl Default for Settings {
             enable_mica: true,
             enable_extension_central: false,
             extension_central_dir: None,
+            download_mirror: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_mirror_rewrites_only_release_urls() {
+        use DownloadMirror::Tuna;
+        assert_eq!(
+            Tuna.rewrite("https://download.blender.org/release/Blender4.5/blender-4.5.0-windows-x64.zip")
+                .as_deref(),
+            Some(
+                "https://mirrors.tuna.tsinghua.edu.cn/blender/release/Blender4.5/blender-4.5.0-windows-x64.zip"
+            )
+        );
+        // builder CDN 上的构建（daily/experimental/patch）镜像站没有。
+        assert_eq!(
+            Tuna.rewrite("https://cdn.builder.blender.org/download/daily/blender-5.4.0-windows.amd64-release.zip"),
+            None
+        );
+        // 非 Blender 官方域名一律不改写。
+        assert_eq!(
+            Tuna.rewrite("https://github.com/polygoniq/extensions/raw/master/a.zip"),
+            None
+        );
+    }
+
+    #[test]
+    fn test_mirror_setting_defaults_to_none_and_survives_missing_field() {
+        // 老版本 settings.json 没有这个字段，必须能读成 None 而不是报错。
+        let parsed: DownloadMirror = serde_json::from_str("\"tuna\"").unwrap();
+        assert_eq!(parsed, DownloadMirror::Tuna);
+        let settings: Settings = serde_json::from_str(
+            r#"{"install_dir":"C:/Blender","cache_dir":"C:/cache","max_concurrent_downloads":2,
+                "auto_check_updates":true,"update_check_interval_hours":24,
+                "register_blend_files":false,"show_tray_icon":true,"launch_on_startup":false,
+                "enable_high_dpi":true,"theme":"dark"}"#,
+        )
+        .unwrap();
+        assert_eq!(settings.download_mirror, None);
     }
 }

@@ -11,4 +11,4 @@ pub use extension::{
     InstalledExtension, LegacyAddon, ManagedMetadata,
 };
 pub use library::{CleanupResult, LibraryStats, RecentProject};
-pub use settings::{ProxyKind, ProxySettings, Settings};
+pub use settings::{DownloadMirror, ProxyKind, ProxySettings, Settings};

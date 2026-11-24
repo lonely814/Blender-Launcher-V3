@@ -2,7 +2,9 @@
 	import { getCurrentWindow } from '@tauri-apps/api/window';
 	import type { Tab } from '$lib/types';
 	import { buildsLoading, downloads } from '$lib/stores';
+	import { formatSpeed, progressPercent } from '$lib/format';
 	import { locale, makeTranslator } from '$lib/i18n';
+	import * as api from '$lib/api';
 
 	let {
 		tab = 'library',
@@ -26,9 +28,35 @@
 		{ id: 'extensions', label: tr('tab.extensions') }
 	]);
 
-	const activeDownloads = $derived(
-		$downloads.filter((task) => !['completed', 'failed', 'cancelled'].includes(task.state)).length
+	const activeTasks = $derived(
+		$downloads.filter((task) => !['completed', 'failed', 'cancelled'].includes(task.state))
 	);
+	const activeDownloads = $derived(activeTasks.length);
+
+	/**
+	 * 聚合进度。按字节加权，而不是把各任务百分比求平均——
+	 * 后者会让 5 MB 的小包和 400 MB 的大包各占一半权重，
+	 * 进度条与实际等待时间无关。
+	 */
+	const transfer = $derived.by(() => {
+		let done = 0;
+		let total = 0;
+		let speed = 0;
+		for (const task of activeTasks) {
+			speed += task.speed_bps;
+			if (task.total_bytes > 0) {
+				done += task.progress_bytes;
+				total += task.total_bytes;
+			}
+		}
+		return { done, total, speed, percent: progressPercent(done, total) };
+	});
+
+	function openRepo(): void {
+		void api
+			.openExtensionPage('https://github.com/lonely814/Blender-Launcher-V3')
+			.catch(() => undefined);
+	}
 </script>
 
 <!-- 原版无系统标题栏：自绘 32px 标题栏（拖拽区 + 窗口按钮） -->
@@ -51,6 +79,48 @@
 				<span class="ml-2 text-accent">checking…</span>
 			{/if}
 		</span>
+
+		<!--
+			传输指示器：放在标题栏而不是某个 Tab 的侧栏里。
+			下载会在用户离开「下载」页后继续跑，进度只挂在那个页面上
+			等于让人不知道自己在等什么。
+		-->
+		{#if activeTasks.length > 0}
+			<button
+				class="mr-1 flex h-6 shrink-0 items-center gap-1.5 rounded-sm2 px-2 text-[11px] text-ink-2 transition hover:bg-surface-3 hover:text-ink-1"
+				title={tr('transfer.title')}
+				onclick={() => onTab('downloads')}
+			>
+				<span class="relative flex h-3 w-3 items-center justify-center">
+					<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<path d="M12 3v12m0 0l-4-4m4 4l4-4M4 19h16" />
+					</svg>
+				</span>
+				<span class="tabular-nums">
+					{#if transfer.percent !== null}
+						{transfer.percent.toFixed(0)}%
+					{:else}
+						{activeTasks.length}
+					{/if}
+				</span>
+				{#if transfer.speed > 0}
+					<span class="tabular-nums text-ink-3">{formatSpeed(transfer.speed)}</span>
+				{/if}
+			</button>
+		{/if}
+
+		<button
+			class="mr-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-sm2 text-ink-2 transition hover:bg-surface-4 hover:text-ink-1"
+			title={tr('action.repository')}
+			onclick={openRepo}
+		>
+			<!-- GitHub 标记：官方 octicon mark-github 的路径 -->
+			<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+				<path
+					d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"
+				/>
+			</svg>
+		</button>
 
 		<div class="flex h-full">
 			<button

@@ -1,5 +1,5 @@
 use crate::models::{BuildBranch, BuildFork, DownloadState, DownloadTask};
-use crate::service::downloader::{filename_from_url, ControlAction, Downloader};
+use crate::service::downloader::{filename_from_url, ControlAction, DownloadSpec, Downloader};
 use crate::state::AppState;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -49,6 +49,8 @@ fn spawn_download(
     app_handle: tauri::AppHandle,
     mut task: DownloadTask,
     url: String,
+    // 同一构建的官方地址：校验清单只从官方域名取，避免镜像自证。
+    official_url: String,
     dest: PathBuf,
     resume_from: u64,
     proxy: crate::models::ProxySettings,
@@ -103,8 +105,19 @@ fn spawn_download(
             return;
         }
 
-        if let Err(err) =
-            Downloader::download(arc_task, url, dest, resume_from, control_rx, &proxy, on_update).await
+        if let Err(err) = Downloader::download(
+            arc_task,
+            DownloadSpec {
+                url,
+                official_url,
+                dest,
+                resume_from,
+            },
+            control_rx,
+            &proxy,
+            on_update,
+        )
+        .await
         {
             tracing::warn!(task_id = %task_id, error = %err, "download ended with error");
         }
@@ -124,6 +137,20 @@ fn category_dir(fork: BuildFork, branch: BuildBranch) -> &'static str {
     }
 }
 
+/// 实际用于下载的地址：配了镜像且镜像有这一版就用镜像。
+///
+/// 返回 `(下载地址, 是否走了镜像)`。文件名在两个站上相同，所以
+/// 落盘路径始终按**官方**地址算——换镜像不该改变文件落在哪，
+/// 否则同一个构建用镜像下一半再切回来就续不上了。
+fn download_url(
+    build: &crate::models::Build,
+    mirror: Option<crate::models::DownloadMirror>,
+) -> String {
+    mirror
+        .and_then(|mirror| mirror.rewrite(&build.url))
+        .unwrap_or_else(|| build.url.clone())
+}
+
 /// 开始下载 (docs/01 §3.2: 立即返回 task_id，进度走事件)
 #[tauri::command]
 pub async fn start_download(
@@ -131,12 +158,16 @@ pub async fn start_download(
     state: State<'_, AppState>,
     app_handle: tauri::AppHandle,
 ) -> Result<String, String> {
-    let (url, install_dir, category, proxy) = {
+    let (url, official_url, filename, install_dir, category, proxy) = {
         let builds = state.builds.lock().unwrap();
         let settings = state.settings.lock().unwrap();
         match builds.iter().find(|b| b.id == build_id) {
             Some(build) => (
+                download_url(build, settings.download_mirror),
                 build.url.clone(),
+                // 落盘名固定取**官方**地址：换镜像不该换路径，
+                // 否则用镜像下一半再切回官方就续不上（part 文件对不上）。
+                filename_from_url(&build.url),
                 settings.install_dir.clone(),
                 category_dir(build.fork, build.branch),
                 settings.proxy.clone(),
@@ -148,7 +179,7 @@ pub async fn start_download(
     let task = DownloadTask::new(build_id, 0);
     let task_id = task.id.clone();
     // 原版结构：<library>/<类别>/<归档>，解压到 <类别>/ 下。
-    let dest = install_dir.join(category).join(filename_from_url(&url));
+    let dest = install_dir.join(category).join(filename);
     spawn_download(
         Arc::clone(&state.downloads),
         Arc::clone(&state.download_controls),
@@ -156,6 +187,7 @@ pub async fn start_download(
         app_handle,
         task,
         url,
+        official_url,
         dest,
         0,
         proxy,
@@ -187,7 +219,7 @@ pub async fn resume_download(
     state: State<'_, AppState>,
     app_handle: tauri::AppHandle,
 ) -> Result<(), String> {
-    let (task, url, install_dir, category, proxy) = {
+    let (task, url, official_url, filename, install_dir, category, proxy) = {
         let downloads = state.downloads.lock().unwrap();
         let builds = state.builds.lock().unwrap();
         let settings = state.settings.lock().unwrap();
@@ -209,7 +241,9 @@ pub async fn resume_download(
             .ok_or_else(|| format!("Build not found: {}", task.build_id))?;
         (
             task,
+            download_url(build, settings.download_mirror),
             build.url.clone(),
+            filename_from_url(&build.url),
             settings.install_dir.clone(),
             category_dir(build.fork, build.branch),
             settings.proxy.clone(),
@@ -217,7 +251,8 @@ pub async fn resume_download(
     };
 
     let resume_from = task.progress_bytes;
-    let dest = install_dir.join(category).join(filename_from_url(&url));
+    // 与 start_download 一致：落盘名永远取官方地址末段，镜像只换传输源。
+    let dest = install_dir.join(category).join(filename);
     spawn_download(
         Arc::clone(&state.downloads),
         Arc::clone(&state.download_controls),
@@ -225,6 +260,7 @@ pub async fn resume_download(
         app_handle,
         task,
         url,
+        official_url,
         dest,
         resume_from,
         proxy,
@@ -257,17 +293,14 @@ pub async fn cancel_download(task_id: String, state: State<'_, AppState>) -> Res
             .find(|t| t.id == task_id)
             .cloned()
             .ok_or_else(|| format!("Download not found: {task_id}"))?;
-        let part_path = builds
-            .iter()
-            .find(|b| b.id == task.build_id)
-            .map(|build| {
-                crate::service::downloader::part_file_path(
-                    &settings
-                        .install_dir
-                        .join(category_dir(build.fork, build.branch))
-                        .join(filename_from_url(&build.url)),
-                )
-            });
+        let part_path = builds.iter().find(|b| b.id == task.build_id).map(|build| {
+            crate::service::downloader::part_file_path(
+                &settings
+                    .install_dir
+                    .join(category_dir(build.fork, build.branch))
+                    .join(filename_from_url(&build.url)),
+            )
+        });
         (task, part_path)
     };
 

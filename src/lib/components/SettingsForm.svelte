@@ -6,7 +6,7 @@
 	import { micaActive, setAccent, setMica, setThemeMode, type Accent, type ThemeMode } from '$lib/theme';
 	import SettingRow from './SettingRow.svelte';
 	import Segmented from './Segmented.svelte';
-	import type { CleanupResult, LibraryStats, Settings as SettingsType } from '$lib/types';
+	import type { AppUpdate, CleanupResult, LibraryStats, Settings as SettingsType } from '$lib/types';
 
 	let { onSaved = () => {} }: { onSaved?: () => void } = $props();
 
@@ -25,6 +25,32 @@
 	let scanning = $state(false);
 	let wingetBusy = $state(false);
 	let wingetRegistered = $state(false);
+
+	// 本程序自身的版本检查（不是 Blender 构建的更新检测）。
+	let appVersion = $state('');
+	let updateChecking = $state(false);
+	let updateResult = $state<AppUpdate | null>(null);
+	let updateError = $state('');
+
+	$effect(() => {
+		void import('@tauri-apps/api/app')
+			.then(({ getVersion }) => getVersion())
+			.then((version) => (appVersion = version))
+			.catch(() => undefined);
+	});
+
+	async function checkUpdate(): Promise<void> {
+		updateChecking = true;
+		updateError = '';
+		updateResult = null;
+		try {
+			updateResult = await api.checkAppUpdate();
+		} catch (err) {
+			updateError = String(err);
+		} finally {
+			updateChecking = false;
+		}
+	}
 
 	const tr = $derived(makeTranslator($locale));
 
@@ -258,6 +284,39 @@
 					</section>
 
 					<section>
+						<h2 class="mb-2 px-1 text-[13px] font-semibold text-ink-2">{tr('settings.general.about')}</h2>
+						<div class="overflow-hidden rounded-sm2 border border-surface-4 bg-surface-2">
+							<SettingRow label={tr('settings.general.appVersion')} last>
+								<span class="text-[12px] tabular-nums text-ink-2">{appVersion}</span>
+								<button
+									class="ml-3 h-8 rounded-sm2 bg-surface-4 px-3 text-[13px] text-ink-1 transition-colors hover:bg-surface-5 disabled:opacity-50"
+									disabled={updateChecking}
+									onclick={checkUpdate}
+								>
+									{updateChecking ? tr('settings.general.checkingUpdate') : tr('settings.general.checkUpdate')}
+								</button>
+							</SettingRow>
+						</div>
+						{#if updateResult}
+							<p class="mt-2 px-1 text-[11.5px] text-ink-3">
+								{#if updateResult.update_available}
+									{tr('settings.general.updateAvailable')
+										.replace('{latest}', updateResult.latest)
+										.replace('{current}', updateResult.current)}
+									<button class="ml-1 text-accent hover:underline" onclick={() => void api.openExtensionPage(updateResult!.html_url)}>
+										{tr('settings.general.openRelease')}
+									</button>
+								{:else}
+									{tr('settings.general.upToDate').replace('{current}', updateResult.current)}
+								{/if}
+							</p>
+						{/if}
+						{#if updateError}
+							<p class="mt-2 px-1 text-[11.5px] text-danger">{updateError}</p>
+						{/if}
+					</section>
+
+					<section>
 						<h2 class="mb-2 px-1 text-[13px] font-semibold text-ink-2">{tr('settings.general.behavior')}</h2>
 						<div class="overflow-hidden rounded-sm2 border border-surface-4 bg-surface-2">
 							<SettingRow label={tr('settings.autoCheck')} toggle checked={editable.auto_check_updates} onclick={() => toggle('auto_check_updates')} />
@@ -429,6 +488,29 @@
 							</SettingRow>
 						</div>
 						<p class="mt-2 px-1 text-[11.5px] text-ink-3">{tr('settings.connection.socksHint')}</p>
+					</section>
+
+					<section>
+						<h2 class="mb-2 px-1 text-[13px] font-semibold text-ink-2">{tr('settings.connection.mirror')}</h2>
+						<div class="overflow-hidden rounded-sm2 border border-surface-4 bg-surface-2">
+							<SettingRow label={tr('settings.connection.mirror')} hint={tr('settings.connection.mirrorHint')} last>
+								<select
+									class="{field} w-[180px]"
+									value={editable.download_mirror ?? 'official'}
+									onchange={(event) => {
+										const value = event.currentTarget.value;
+										editable = {
+											...editable!,
+											download_mirror: value === 'official' ? null : (value as 'tuna')
+										};
+									}}
+								>
+									<option value="official">{tr('settings.connection.mirrorOfficial')}</option>
+									<option value="tuna">{tr('settings.connection.mirrorTuna')}</option>
+								</select>
+							</SettingRow>
+						</div>
+						<p class="mt-2 px-1 text-[11.5px] text-ink-3">{tr('settings.connection.mirrorNote')}</p>
 					</section>
 				{:else if section === 'builds'}
 					<section class="mb-5">

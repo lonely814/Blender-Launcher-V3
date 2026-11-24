@@ -1,38 +1,26 @@
-use crate::error::AppError;
 use crate::models::Settings;
 use crate::Result;
 use std::path::{Path, PathBuf};
 
-/**
- * 便携模式的数据根目录。
- *
- * 判定依据是「可执行文件旁边有没有 `portable` 标记文件」，而不是
- * 「exe 所在目录可写」——后者会随 UAC、Program Files 权限漂移，
- * 同一个 exe 在不同机器上落到不同位置，用户无法预期数据在哪。
- *
- * 原版的做法更隐式：只要 exe 旁有本地配置文件就用它（platform_utils.py
- * 的 `get_config_file` 优先 local）。但那有个副作用——用户把 exe 拷到
- * 一个恰好有同名 ini 的目录旁就会莫名其妙切到便携模式。
- * 显式标记文件把「我要便携」变成用户的主动选择。
- */
+/// 便携模式的数据根目录。
+///
+/// 判定依据是「可执行文件旁边有没有 `portable` 标记文件」，而不是
+/// 「exe 所在目录可写」——后者会随 UAC、Program Files 权限漂移，
+/// 同一个 exe 在不同机器上落到不同位置，用户无法预期数据在哪。
+///
+/// 原版的做法更隐式：只要 exe 旁有本地配置文件就用它（platform_utils.py
+/// 的 `get_config_file` 优先 local）。但那有个副作用——用户把 exe 拷到
+/// 一个恰好有同名 ini 的目录旁就会莫名其妙切到便携模式。
+/// 显式标记文件把「我要便携」变成用户的主动选择。
 pub fn portable_root() -> Option<PathBuf> {
-    let exe = std::env::current_exe().ok()?;
-    let dir = exe.parent()?.to_path_buf();
-    if dir.join("portable").exists() {
-        Some(dir)
-    } else {
-        None
-    }
+    let dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
+    dir.join("portable").exists().then_some(dir)
 }
 
 /// 数据目录：便携模式用 exe 同级，否则用系统配置目录。
 pub fn data_root() -> PathBuf {
-    if let Some(root) = portable_root() {
-        return root;
-    }
-    dirs::config_dir()
-        .unwrap_or_default()
-        .join("BlenderLauncher")
+    portable_root()
+        .unwrap_or_else(|| dirs::config_dir().unwrap_or_default().join("BlenderLauncher"))
 }
 
 /// settings.json 位置。
@@ -45,12 +33,10 @@ pub fn settings_file_path() -> PathBuf {
 
 /// 缓存目录：便携模式 `<exe dir>/cache`，否则系统缓存目录。
 pub fn cache_root() -> PathBuf {
-    if let Some(root) = portable_root() {
-        return root.join("cache");
-    }
-    dirs::cache_dir()
-        .unwrap_or_default()
-        .join("BlenderLauncher")
+    portable_root().map_or_else(
+        || dirs::cache_dir().unwrap_or_default().join("BlenderLauncher"),
+        |root| root.join("cache"),
+    )
 }
 
 /// 默认库目录。
@@ -58,12 +44,10 @@ pub fn cache_root() -> PathBuf {
 /// 便携模式必须落在 exe 同级，否则「拷走整个文件夹」带不走已下载的构建。
 /// 非便携模式沿用原版语义：`%LOCALAPPDATA%/Blender Launcher`。
 pub fn default_library_root() -> PathBuf {
-    if let Some(root) = portable_root() {
-        return root.join("builds");
-    }
-    dirs::data_local_dir()
-        .unwrap_or_default()
-        .join("Blender Launcher")
+    portable_root().map_or_else(
+        || dirs::data_local_dir().unwrap_or_default().join("Blender Launcher"),
+        |root| root.join("builds"),
+    )
 }
 
 /// 库根目录下固定创建的子目录（原版 `library_subfolders`）。
@@ -84,7 +68,7 @@ pub const LIBRARY_SUBFOLDERS: [&str; 8] = [
 /// 建库目录骨架。幂等，已存在不报错。
 pub fn create_library_folders(root: &Path) -> Result<()> {
     for sub in LIBRARY_SUBFOLDERS {
-        std::fs::create_dir_all(root.join(sub)).map_err(AppError::from)?;
+        std::fs::create_dir_all(root.join(sub))?;
     }
     Ok(())
 }
@@ -108,12 +92,12 @@ pub fn load_settings() -> Settings {
 pub fn save_settings(settings: &Settings) -> Result<()> {
     let path = settings_file_path();
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(AppError::from)?;
+        std::fs::create_dir_all(parent)?;
     }
     let text = serde_json::to_string_pretty(settings)?;
     let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, text).map_err(AppError::from)?;
-    std::fs::rename(&tmp, &path).map_err(AppError::from)?;
+    std::fs::write(&tmp, text)?;
+    std::fs::rename(&tmp, &path)?;
     Ok(())
 }
 

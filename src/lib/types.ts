@@ -139,7 +139,7 @@ export interface RecentProject {
 }
 
 /** 主窗口页签（对应原版 Library / Downloads / Favorites）。 */
-export type Tab = 'library' | 'downloads' | 'favorites';
+export type Tab = 'library' | 'downloads' | 'favorites' | 'extensions';
 
 /** 表格视图模式，决定日期列标题。 */
 export type TableMode = Tab;
@@ -161,4 +161,64 @@ export interface MenuItem {
 	disabled?: boolean;
 	/** 子菜单（原版 Debug 子菜单） */
 	children?: MenuItem[];
+}
+
+// ------------------------------------------------------------ 插件与扩展（docs/06）
+
+/** 插件类型。`kind` 是上游 `blender_manifest.toml` 的 `type` 字段原值。 */
+export type ExtensionKind = 'add-on' | 'theme' | 'asset-library';
+
+/** 已安装的扩展（读 `blender_manifest.toml`）。 */
+export interface InstalledExtension {
+	pkg_id: string;
+	repo: string;
+	path: string;
+	name: string;
+	version: string;
+	kind: string;
+	/** `null` = 还没探测过，界面必须显示「未知」而不是「已禁用」。 */
+	enabled: boolean | null;
+	/** 目录带 `.blmgr.json`，归本程序管理（方案 B）。 */
+	managed: boolean;
+}
+
+/** 旧式插件（`scripts/addons/*.py`，读 `bl_info`）。 */
+export interface LegacyAddon {
+	module: string;
+	path: string;
+	name: string;
+	version: string | null;
+	category: string | null;
+	description: string | null;
+	enabled: boolean | null;
+}
+
+/** 一次扫描的完整结果。 */
+export interface ExtensionScan {
+	extensions: InstalledExtension[];
+	legacy: LegacyAddon[];
+	/** 有目录但 manifest 读不出来。 */
+	corrupt: string[];
+	ext_root: string | null;
+	/** 上次探测启用状态的时间（ISO 串）。`null` 表示从未探测过。 */
+	enabled_checked_at: string | null;
+}
+
+/** 官方目录条目（L2 本地 index.json / L3 联网）。 */
+export interface CatalogItem {
+	id: string;
+	name: string;
+	tagline: string | null;
+	version: string;
+	kind_raw: string;
+	archive_url: string;
+	archive_hash: string | null;
+	archive_size: number;
+	blender_version_min: string | null;
+	blender_version_max: string | null;
+	platforms: string[] | null;
+	website: string | null;
+	maintainer: string | null;
+	license: string[];
+	tags: string[];
 }

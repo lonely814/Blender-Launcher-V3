@@ -14,7 +14,9 @@
 	import SettingsForm from '$lib/components/SettingsForm.svelte';
 	import DownloadItem from '$lib/components/DownloadItem.svelte';
 	import BuildEntryDialog from '$lib/components/BuildEntryDialog.svelte';
+	import CatalogDialog from '$lib/components/CatalogDialog.svelte';
 	import FirstRunWizard from '$lib/components/FirstRunWizard.svelte';
+	import ExtensionList from '$lib/components/ExtensionList.svelte';
 	import {
 		appError,
 		builds,
@@ -33,7 +35,17 @@
 	} from '$lib/stores';
 	import * as api from '$lib/api';
 	import { locale, makeTranslator } from '$lib/i18n';
-	import type { Build, BuildRow, DownloadTask, MenuItem, Tab } from '$lib/types';
+	import type {
+		Build,
+		BuildRow,
+		CatalogItem,
+		DownloadTask,
+		ExtensionScan,
+		InstalledExtension,
+		LegacyAddon,
+		MenuItem,
+		Tab
+	} from '$lib/types';
 
 	type SubTab = {
 		id: string;
@@ -97,6 +109,167 @@
 	let focusId = $state<string | null>(null);
 	let detailOpen = $state(true);
 	const focusBuild = $derived($builds.find((b) => b.id === focusId) ?? null);
+
+	// ---------- 插件页（docs/06） ----------
+
+	/**
+	 * 插件读取的是「某个已装版本」的扩展目录，所以必须选一个 Build。
+	 * 默认取最近安装的一个，用户可以在下拉里改。
+	 */
+	let extBuildId = $state<string | null>(null);
+	let extScan = $state<ExtensionScan | null>(null);
+	let extLoading = $state(false);
+	let extProbing = $state(false);
+	let extFilter = $state('');
+
+	// 扩展目录对话框。
+	let extCatalogOpen = $state(false);
+	let extCatalog = $state<CatalogItem[]>([]);
+	let extCatalogLoading = $state(false);
+	let extCatalogError = $state('');
+	let extInstalling = $state<string | null>(null);
+
+	const installedBuilds = $derived($builds.filter((build) => build.is_installed));
+
+	// 已装列表变化时（装完新版本、删掉当前选的），把选择收敛到仍存在的一项。
+	// 只写 extBuildId，不再读它以外的状态，所以不会自触发。
+	$effect(() => {
+		const list = installedBuilds;
+		if (list.length === 0) {
+			if (extBuildId !== null) {
+				extBuildId = null;
+				extScan = null;
+			}
+			return;
+		}
+		if (extBuildId && list.some((build) => build.id === extBuildId)) return;
+		// 取最新版本，而不是列表第一项：列表默认按时间倒序，
+		// 但用户可能改过排序。
+		const newest = [...list].sort((a, b) => b.release_date.localeCompare(a.release_date))[0];
+		extBuildId = newest.id;
+	});
+
+	// 切换版本后自动扫描一次。扫描是纯读文件，几毫秒，可以自动做；
+	// 启用状态探测要起 Blender 进程，必须用户点按钮。
+	$effect(() => {
+		const id = extBuildId;
+		if (!id) return;
+		void loadExtensions(id);
+	});
+
+	async function loadExtensions(buildId: string): Promise<void> {
+		extLoading = true;
+		try {
+			extScan = await api.scanExtensions(buildId);
+		} catch (err) {
+			appError.set(String(err));
+			extScan = null;
+		} finally {
+			extLoading = false;
+		}
+	}
+
+	async function detectExtensions(): Promise<void> {
+		const id = extBuildId;
+		if (!id || extProbing) return;
+		extProbing = true;
+		try {
+			extScan = await api.probeExtensions(id);
+		} catch (err) {
+			appError.set(String(err));
+		} finally {
+			extProbing = false;
+		}
+	}
+
+	async function toggleExtension(
+		item: InstalledExtension | LegacyAddon,
+		enabled: boolean
+	): Promise<void> {
+		const id = extBuildId;
+		if (!id) return;
+		try {
+			// 旧式插件没有 repo，传空串让后端走裸模块名分支。
+			const repo = 'repo' in item ? item.repo : '';
+			const pkgId = 'pkg_id' in item ? item.pkg_id : item.module;
+			await api.setExtensionEnabled(id, repo, pkgId, enabled);
+
+			// 就地更新，不重扫：scan 本身不读启用状态，重扫会把刚写的值抹回 null。
+			// 换一个新对象引用，让 ExtensionList 的 $derived 重新求值。
+			item.enabled = enabled;
+			if (extScan) extScan = { ...extScan };
+		} catch (err) {
+			appError.set(String(err));
+		}
+	}
+
+	async function removeExtension(item: InstalledExtension): Promise<void> {
+		const id = extBuildId;
+		if (!id) return;
+		const message = tr('ext.confirmRemove').replace('{name}', item.name || item.pkg_id);
+		if (!window.confirm(message)) return;
+		try {
+			await api.removeExtension(id, item.repo, item.pkg_id);
+			await loadExtensions(id);
+		} catch (err) {
+			appError.set(String(err));
+		}
+	}
+
+	function revealPath(path: string): void {
+		void api.openInExplorer(path).catch((err) => appError.set(String(err)));
+	}
+
+	/** 打开目录对话框：先显示已有结果，再在后台刷新（首次要联网，可能慢）。 */
+	async function openCatalog(): Promise<void> {
+		const id = extBuildId;
+		if (!id) return;
+		extCatalogOpen = true;
+		extCatalogLoading = true;
+		extCatalogError = '';
+		try {
+			extCatalog = await api.getExtensionCatalog(id);
+		} catch (err) {
+			extCatalogError = String(err);
+		} finally {
+			extCatalogLoading = false;
+		}
+	}
+
+	async function installFromCatalog(item: CatalogItem): Promise<void> {
+		const id = extBuildId;
+		if (!id || extInstalling) return;
+		extInstalling = item.id;
+		try {
+			// enable=true：装完就启用。用户点「安装」的意图通常就是马上能用，
+			// 之后可以在列表里单独关掉。
+			await api.installExtension(id, item.id, true);
+			await loadExtensions(id);
+		} catch (err) {
+			appError.set(String(err));
+		} finally {
+			extInstalling = null;
+		}
+	}
+
+	/** 从本地 zip 安装（离线包、作者直接给的构建）。 */
+	async function importExtensionFile(): Promise<void> {
+		const id = extBuildId;
+		if (!id) return;
+		const { open } = await import('@tauri-apps/plugin-dialog');
+		const picked = await open({
+			title: tr('ext.importFile'),
+			multiple: false,
+			filters: [{ name: 'Extension package', extensions: ['zip'] }]
+		});
+		if (typeof picked !== 'string') return;
+		try {
+			await api.installExtensionFile(id, picked, true);
+			await loadExtensions(id);
+		} catch (err) {
+			appError.set(String(err));
+		}
+	}
 
 	// 焦点行消失（删除/切页/重扫）时回落到当前第一行，避免面板显示已不存在的构建。
 	// 条件收敛：写完后 focusId 必然存在于 rows 中，effect 再跑一次就跳过。
@@ -600,6 +773,93 @@
 			<div class="min-h-0 flex-1 overflow-hidden">
 				<SettingsForm />
 			</div>
+		{:else if tab === 'extensions'}
+			<!-- 插件页与库布局无关：扩展目录属于某个具体 Build，
+			     与排序/子页签/多选都不共享状态，所以放在布局分支之前。 -->
+			<div class="flex min-w-0 flex-1 flex-col">
+				<div class="flex shrink-0 items-center gap-3 border-b border-surface-4 bg-surface-1 px-3 py-2">
+					{#if installedBuilds.length > 0}
+						<label class="flex items-center gap-2 text-[12px] text-ink-3">
+							{tr('ext.pickBuild')}
+							<select
+								class="h-7 rounded-sm2 border border-surface-4 bg-surface-2 px-2 text-[12px] text-ink-1"
+								value={extBuildId ?? ''}
+								onchange={(event) => (extBuildId = event.currentTarget.value)}
+							>
+								{#each installedBuilds as build (build.id)}
+									<option value={build.id}>{build.version}</option>
+								{/each}
+							</select>
+						</label>
+					{/if}
+
+					{#if extScan}
+						<span class="min-w-0 truncate text-[12px] text-ink-3" title={extScan.ext_root ?? ''}>
+							{tr('ext.count').replace('{count}', String(extScan.extensions.length + extScan.legacy.length))}
+						</span>
+						{#if extScan.corrupt.length > 0}
+							<span class="shrink-0 text-[12px] text-warning" title={extScan.corrupt.join('\n')}>
+								{tr('ext.corrupt').replace('{count}', String(extScan.corrupt.length))}
+							</span>
+						{/if}
+					{/if}
+
+				<input
+					type="search"
+					placeholder={tr('search.placeholder')}
+					class="ml-auto h-7 w-48 rounded-sm2 border border-surface-4 bg-surface-2 px-2 text-[12px] text-ink-1 placeholder:text-ink-3 focus:border-accent focus:outline-none"
+					bind:value={extFilter}
+				/>
+				<button
+					class="h-7 shrink-0 rounded-sm2 border border-surface-4 px-3 text-[12px] text-ink-2 transition-colors hover:border-surface-5 hover:text-ink-1 disabled:opacity-50"
+					disabled={!extBuildId}
+					title={tr('ext.catalogFootNote')}
+					onclick={() => void openCatalog()}
+				>
+					{tr('ext.openCatalog')}
+				</button>
+				<button
+					class="h-7 shrink-0 rounded-sm2 border border-surface-4 px-3 text-[12px] text-ink-2 transition-colors hover:border-surface-5 hover:text-ink-1 disabled:opacity-50"
+					disabled={!extBuildId}
+					title={tr('ext.importHint')}
+					onclick={() => void importExtensionFile()}
+				>
+					{tr('ext.importFile')}
+				</button>
+				<button
+					class="h-7 shrink-0 rounded-sm2 border border-surface-4 px-3 text-[12px] text-ink-2 transition-colors hover:border-surface-5 hover:text-ink-1 disabled:opacity-50"
+					disabled={!extBuildId || extProbing}
+					title={tr('ext.detectedHint')}
+					onclick={detectExtensions}
+				>
+					{extProbing ? tr('ext.detecting') : tr('ext.detect')}
+				</button>
+			</div>
+
+			{#if extScan?.enabled_checked_at}
+				<div class="shrink-0 border-b border-surface-4/60 bg-surface-2 px-3 py-1 text-[11px] text-ink-3">
+					{tr('ext.detectedAt').replace(
+						'{time}',
+						new Date(extScan.enabled_checked_at).toLocaleString()
+					)}
+				</div>
+			{:else}
+				<div class="shrink-0 border-b border-surface-4/60 bg-surface-2 px-3 py-1 text-[11px] text-ink-3">
+					{tr('ext.neverDetected')}
+				</div>
+			{/if}
+
+				<div class="min-h-0 flex-1">
+					<ExtensionList
+						scan={extScan}
+						filter={extFilter}
+						onToggle={(item, enabled) => void toggleExtension(item, enabled)}
+						onReveal={revealPath}
+						onRemove={(item) => void removeExtension(item)}
+						onDetect={detectExtensions}
+					/>
+				</div>
+			</div>
 		{:else if wide}
 			<!-- Wide：顶部横向子页签 + 紧凑行，表格吃满宽度 -->
 			<div class="flex min-w-0 flex-1 flex-col">
@@ -753,6 +1013,19 @@
 
 	{#if wizardOpen}
 		<FirstRunWizard onDone={() => (wizardOpen = false)} />
+	{/if}
+
+	{#if extCatalogOpen}
+		<CatalogDialog
+			items={extCatalog}
+			scan={extScan}
+			loading={extCatalogLoading}
+			error={extCatalogError}
+			installing={extInstalling}
+			onClose={() => (extCatalogOpen = false)}
+			onInstall={(item) => void installFromCatalog(item)}
+			onOpenPage={(url) => void api.openExtensionPage(url).catch((err) => appError.set(String(err)))}
+		/>
 	{/if}
 
 	<!-- 无边框窗口的四边四角缩放手柄（shadow:true 时 tao 只补上边缘） -->

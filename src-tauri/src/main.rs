@@ -8,7 +8,6 @@ use blender_launcher_lib::service::settings::{
 use blender_launcher_lib::state::AppState;
 use tauri::Manager;
 
-
 fn main() {
     tracing_subscriber::fmt::init();
 
@@ -153,6 +152,14 @@ fn main() {
             commands::build_entry::get_build_hash,
             commands::winget::register_with_winget,
             commands::winget::is_winget_registered,
+            commands::extensions::scan_extensions,
+            commands::extensions::probe_extensions,
+            commands::extensions::get_extension_catalog,
+            commands::extensions::install_extension,
+            commands::extensions::install_extension_file,
+            commands::extensions::set_extension_enabled,
+            commands::extensions::remove_extension,
+            commands::extensions::open_extension_page,
             commands::tray::get_quick_launch,
             commands::tray::toggle_quick_launch,
             commands::tray::quick_launch,

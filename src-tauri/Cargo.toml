@@ -30,6 +30,10 @@ thiserror = "1.0"
 tracing = "0.1"
 tracing-subscriber = "0.3"
 soup = "0.5"
+# manifest 解析：blender_manifest.toml 由第三方编写，含 [permissions] 表、
+# 数组、多行字符串。手写解析器在真实数据上必然出错。
+# 0.8.2 已在依赖树中（tauri-build → cargo_toml），不新增编译单元。
+toml = "0.8"
 rusqlite = { version = "0.31", features = ["bundled", "chrono"] }
 semver = { version = "1.0", features = ["serde"] }
 dirs = "5.0"

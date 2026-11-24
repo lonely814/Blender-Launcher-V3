@@ -1,6 +1,7 @@
 pub mod build_entry;
 pub mod builds;
 pub mod downloads;
+pub mod extensions;
 pub mod launcher;
 pub mod library;
 pub mod projects;

@@ -22,7 +22,8 @@
 	const tabs = $derived<Array<{ id: Tab; label: string }>>([
 		{ id: 'library', label: tr('tab.library') },
 		{ id: 'downloads', label: tr('tab.downloads') },
-		{ id: 'favorites', label: tr('tab.favorites') }
+		{ id: 'favorites', label: tr('tab.favorites') },
+		{ id: 'extensions', label: tr('tab.extensions') }
 	]);
 
 	const activeDownloads = $derived(

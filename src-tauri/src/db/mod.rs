@@ -48,6 +48,16 @@ impl Db {
                 CREATE TABLE IF NOT EXISTS favorites (
                     build_id TEXT PRIMARY KEY,
                     added_at INTEGER NOT NULL
+                );
+                -- 启用状态探测结果缓存。探测要起一个 Blender 子进程（约 5 秒、
+                -- 最长 20 秒），不能每次进插件页都跑。主键含 build_id：
+                -- 不同构建的插件启用状态互相独立。
+                CREATE TABLE IF NOT EXISTS extension_enabled (
+                    build_id   TEXT NOT NULL,
+                    module     TEXT NOT NULL,
+                    enabled    INTEGER NOT NULL,
+                    checked_at INTEGER NOT NULL,
+                    PRIMARY KEY (build_id, module)
                 );",
             )
             .map_err(|err| AppError::DatabaseError(err.to_string()))?;
@@ -194,6 +204,66 @@ impl Db {
             .map_err(|err| AppError::DatabaseError(err.to_string()))?;
         Ok(())
     }
+
+    /// 读某个构建缓存的启用状态。
+    ///
+    /// 返回 `(module, enabled, checked_at)`。`checked_at` 让调用方自己决定
+    /// 是否过期——过期策略属于命令层，不该写死在存储层。
+    pub fn extension_enabled(&self, build_id: &str) -> Result<Vec<(String, bool, i64)>> {
+        let conn = self.conn.lock().unwrap();
+        let mut statement = conn
+            .prepare(
+                "SELECT module, enabled, checked_at FROM extension_enabled WHERE build_id = ?1",
+            )
+            .map_err(|err| AppError::DatabaseError(err.to_string()))?;
+        let rows = statement
+            .query_map([build_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, i64>(1)? > 0,
+                    row.get::<_, i64>(2)?,
+                ))
+            })
+            .map_err(|err| AppError::DatabaseError(err.to_string()))?;
+
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row.map_err(|err| AppError::DatabaseError(err.to_string()))?);
+        }
+        Ok(result)
+    }
+
+    /// 覆盖写入某个构建的启用状态快照。
+    ///
+    /// 先清后插：探测是一次全量结果，残留的旧行会让已卸载的插件永远
+    /// 显示为「已启用」。
+    pub fn replace_extension_enabled(
+        &self,
+        build_id: &str,
+        modules: &[(String, bool)],
+    ) -> Result<()> {
+        let now = Utc::now().timestamp();
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn
+            .transaction()
+            .map_err(|err| AppError::DatabaseError(err.to_string()))?;
+        tx.execute(
+            "DELETE FROM extension_enabled WHERE build_id = ?1",
+            [build_id],
+        )
+        .map_err(|err| AppError::DatabaseError(err.to_string()))?;
+        for (module, enabled) in modules {
+            tx.execute(
+                "INSERT INTO extension_enabled (build_id, module, enabled, checked_at)
+                 VALUES (?1, ?2, ?3, ?4)",
+                rusqlite::params![build_id, module, i64::from(*enabled), now],
+            )
+            .map_err(|err| AppError::DatabaseError(err.to_string()))?;
+        }
+        tx.commit()
+            .map_err(|err| AppError::DatabaseError(err.to_string()))?;
+        Ok(())
+    }
 }
 
 /// 默认数据库路径：`<cache_dir>/blender-launcher.db`。
@@ -248,5 +318,37 @@ mod tests {
             default_db_path(Path::new("C:/cache")),
             PathBuf::from("C:/cache/blender-launcher.db")
         );
+    }
+
+    #[test]
+    fn test_extension_enabled_replace_clears_stale_rows() {
+        let dir = std::env::temp_dir().join(format!("bl-db-ext-{}", uuid::Uuid::new_v4()));
+        let db = Db::open(&default_db_path(&dir)).unwrap();
+
+        db.replace_extension_enabled(
+            "build-a",
+            &[
+                ("bl_ext.blender_org.facetor".into(), true),
+                ("HOps".into(), false),
+            ],
+        )
+        .unwrap();
+        let first = db.extension_enabled("build-a").unwrap();
+        assert_eq!(first.len(), 2);
+        assert!(first
+            .iter()
+            .any(|(module, enabled, _)| module.ends_with("facetor") && *enabled));
+
+        // 第二次只探到一项：旧行必须消失，否则已卸载的插件会永远显示已启用。
+        db.replace_extension_enabled("build-a", &[("bl_ext.blender_org.facetor".into(), false)])
+            .unwrap();
+        let second = db.extension_enabled("build-a").unwrap();
+        assert_eq!(second.len(), 1);
+        assert!(!second[0].1);
+
+        // 不同构建的结果互不影响。
+        assert!(db.extension_enabled("build-b").unwrap().is_empty());
+
+        std::fs::remove_dir_all(dir).ok();
     }
 }

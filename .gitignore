@@ -1,0 +1,25 @@
+# 依赖与构建产物
+node_modules/
+.svelte-kit/
+build/
+src-tauri/target/
+
+# Tauri 生成的 schema（build 时按 capabilities 重新生成，不入库）
+src-tauri/gen/schemas/
+
+# 日志与临时文件
+*.log
+*.tmp
+nohup.out
+.DS_Store
+Thumbs.db
+
+# 本地环境与编辑器
+.env
+.env.*
+!.env.example
+.vscode/
+.idea/
+*.suo
+*.user
+*.code-workspace

@@ -1,0 +1,54 @@
+[package]
+name = "blender-launcher-v3"
+version = "3.0.0"
+edition = "2021"
+
+[lib]
+# 库名不带版本号：它是内部 crate 名，所有 use 语句都引用它，
+# 跟着产品版本改会让每次大版本都要动一堆文件。
+name = "blender_launcher_lib"
+path = "src/lib.rs"
+
+[[bin]]
+name = "blender-launcher-v3"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2.0", features = [] }
+
+[dependencies]
+# Tauri 2 moved fs/shell/window permissions to the capability system
+# (tauri.conf.json + plugin crates), so the crate itself needs no features.
+tauri = { version = "2.0", features = ["tray-icon", "image-png"] }
+tokio = { version = "1.40", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+reqwest = { version = "0.11", features = ["cookies", "stream"] }
+uuid = { version = "1.0", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+thiserror = "1.0"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+soup = "0.5"
+rusqlite = { version = "0.31", features = ["bundled", "chrono"] }
+semver = { version = "1.0", features = ["serde"] }
+dirs = "5.0"
+sha2 = "0.10"
+zip = { version = "2.2", default-features = false, features = ["deflate"] }
+tar = "0.4"
+lzma-rs = "0.3"
+flate2 = "1.0"
+trash = "3"
+sysinfo = "0.33"
+anyhow = "1.0"
+tauri-plugin-dialog = "2"
+tauri-plugin-global-shortcut = "2"
+
+[dev-dependencies]
+tokio-test = "0.4"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true

@@ -1,0 +1,51 @@
+{
+	"$schema": "https://schema.tauri.app/config/2.0",
+	"productName": "Blender Launcher",
+	"version": "3.0.0",
+	"identifier": "com.blender-launcher.app",
+	"build": {
+		"beforeDevCommand": "npm run dev",
+		"beforeBuildCommand": "npm run build",
+		"devUrl": "http://localhost:5173",
+		"frontendDist": "../build"
+	},
+	"app": {
+		"withGlobalTauri": true,
+		"windows": [
+			{
+				"title": "Blender Launcher",
+				"width": 1100,
+				"height": 760,
+				"minWidth": 720,
+				"minHeight": 560,
+				"resizable": true,
+				"fullscreen": false,
+				"decorations": false,
+				"center": true,
+				"label": "main",
+				"transparent": false,
+				"shadow": true,
+				"windowEffects": {
+					"effects": [
+						"mica"
+					]
+				}
+			}
+		],
+		"security": {
+			"csp": null
+		}
+	},
+	"bundle": {
+		"active": true,
+		"targets": "all",
+		"icon": [
+			"icons/32x32.png",
+			"icons/128x128.png",
+			"icons/128x128@2x.png",
+			"icons/icon.icns",
+			"icons/icon.ico"
+		]
+	},
+	"plugins": {}
+}

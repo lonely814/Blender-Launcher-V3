@@ -1,0 +1,250 @@
+/**
+ * 简体中文。以 en.ts 为基准做类型约束：缺 key 或拼错 key 都会编译报错。
+ *
+ * 翻译原则（与前端设计一致）：
+ * - 界面用「你」不用「您」，专业工具不必客套。
+ * - 按钮用动词原形且全流程同名：保存 = 保存 = 已保存。
+ * - 术语统一：build = 构建，branch = 分支，commit time = 提交时间。
+ */
+import type en from './en';
+
+const zh: Record<keyof typeof en, string> = {
+	// window chrome
+	'window.minimize': '最小化',
+	'window.maximize': '最大化',
+	'window.close': '关闭',
+	'window.resize': '调整窗口大小',
+
+	// main tabs
+	'tab.library': '库',
+	'tab.downloads': '下载',
+	'tab.favorites': '收藏',
+
+	// table
+	'col.version': '版本',
+	'col.branch': '分支',
+	'col.commitTime': '提交时间',
+	'col.uploadTime': '上传时间',
+	'col.buildHash': '构建哈希',
+
+	// row actions
+	'action.launch': '启动',
+	'action.download': '下载',
+	'action.running': '运行中',
+	'action.reload': '重新加载',
+	'action.check': '检查',
+	'action.settings': '设置',
+	'action.update': '更新到最新版本',
+	'action.runningInstances': '运行中的实例',
+
+	// status bar
+	'status.lastCheck': '上次检查',
+	'status.never': '从未',
+	'status.scanLibrary': '扫描库',
+	'status.rescanLibrary': '重新扫描',
+	'status.checking': '正在检查新版本…',
+	'status.ready': '就绪',
+
+	// empty states
+	'empty.library': '未找到该类型的构建',
+	'empty.downloads': '没有可下载的新版本',
+	'empty.favorites': '暂无收藏',
+
+	// search
+	'search.placeholder': '搜索构建',
+
+	// detail panel
+	'detail.title': '详情',
+	'detail.empty': '选择一个构建查看详情',
+	'detail.show': '显示详情面板',
+	'detail.hide': '隐藏详情面板',
+	'detail.commitTime': '提交时间',
+	'detail.size': '下载大小',
+	'detail.hash': '构建哈希',
+	'detail.path': '安装路径',
+	'detail.notes': '发布说明',
+	'detail.updateAvailable': '该分支有更新的版本可用。',
+	'detail.multiSelected': '已选中 {count} 项，正在显示其中一项',
+	'detail.load': '加载',
+	'detail.copy': '复制',
+	'detail.open': '打开',
+	'detail.fetch': '获取',
+	'detail.reloading': '加载中…',
+	'detail.unknown': '未知',
+	'detail.noNotes': '该构建没有发布说明。',
+
+	// settings — navigation
+	'settings.title': '设置',
+	'settings.nav.general': '常规',
+	'settings.nav.appearance': '外观',
+	'settings.nav.connection': '连接',
+	'settings.nav.builds': '构建',
+	'settings.nav.library': '库',
+	'settings.save': '保存更改',
+	'settings.saving': '保存中…',
+	'settings.saved': '已保存',
+	'settings.loading': '正在加载设置…',
+
+	// settings — general
+	'settings.general.paths': '文件夹',
+	'settings.general.libraryFolder': '库文件夹',
+	'settings.general.libraryFolderHint': '下载的 Blender 构建存放位置。',
+	'settings.general.cacheFolder': '缓存文件夹',
+	'settings.general.cacheFolderHint': '存放版本列表缓存和临时文件。',
+	'settings.general.browse': '浏览',
+	'settings.general.association': '文件关联',
+	'settings.general.register': '关联 .blend 文件',
+	'settings.general.registerHint': '双击 .blend 文件时由启动器打开，先选构建再打开文件。',
+	'settings.general.registered': '已关联',
+	'settings.general.behavior': '行为',
+	'settings.autoCheck': '自动检查新版本',
+	'settings.showUpdate': '在已安装的构建上显示更新按钮',
+	'settings.notify': '有新版本时通知',
+	'settings.tray': '最小化到托盘',
+	'settings.trayHint': '关闭窗口时不退出程序，留在后台。',
+	'settings.startMinimized': '启动时最小化到托盘',
+	'settings.startMinimizedHint': '需要先启用托盘图标。',
+	'settings.startOnBoot': '开机时启动',
+	'settings.highDpi': '界面跟随系统缩放',
+
+	// settings — appearance
+	'settings.appearance.window': '窗口',
+	'settings.appearance.mica': '云母背景',
+	'settings.appearance.micaHint': '让窗口透出桌面壁纸的质感。需要 Windows 11 22H2 或更高版本。',
+	'settings.appearance.micaActive': '云母效果已启用。',
+	'settings.appearance.micaUnavailable': '当前系统不支持，已改用纯色背景。',
+	'settings.appearance.theme': '主题',
+	'settings.appearance.themeHint': '跟随系统时会自动使用 Windows 的深色或浅色设置。',
+	'settings.theme.dark': '深色',
+	'settings.theme.light': '浅色',
+	'settings.theme.system': '跟随系统',
+	'settings.appearance.language': '语言',
+	'settings.appearance.languageAuto': '跟随系统',
+	'settings.appearance.languageHint': '切换后立即生效，无需重启。',
+	'settings.appearance.accentGroup': '配色',
+	'settings.appearance.languageGroup': '语言与区域',
+	'settings.appearance.layoutGroup': '界面',
+	'settings.appearance.accent': '强调色',
+	'settings.appearance.accentHint': '只改变高亮颜色，成功、警告、错误色保持原义。',
+	'settings.appearance.layout': '布局',
+	'settings.appearance.layoutHint': '构建列表与导航的排布方式。',
+	'settings.layout.classic': '经典',
+	'settings.layout.classicDesc': '左侧竖排页签，标准行高',
+	'settings.layout.wide': '紧凑',
+	'settings.layout.wideDesc': '顶部横向页签，行高更小',
+	'settings.layout.detail': '详情',
+	'settings.layout.detailDesc': '紧凑布局加右侧详情面板',
+
+	// settings — connection
+	'settings.connection.windows': 'Windows 集成',
+	'settings.connection.registerApp': '添加到「应用和功能」',
+	'settings.connection.registering': '正在添加…',
+	'settings.connection.registered': '已在「应用和功能」中列出',
+	'settings.connection.registerHint':
+		'添加卸载条目，让 Windows 能正常卸载本程序。不会注册 WinGet 包，因此 winget upgrade 不会覆盖你的安装。',
+	'settings.connection.proxy': '代理',
+	'settings.connection.proxyEnable': '下载和检查更新时使用代理',
+	'settings.connection.type': '类型',
+	'settings.connection.host': '地址',
+	'settings.connection.port': '端口',
+	'settings.connection.username': '用户名',
+	'settings.connection.password': '密码',
+	'settings.connection.proxyHint':
+		'密码以明文保存在 settings.json 中。代理不需要密码时请留空。',
+	'settings.connection.socksHint': '不支持 SOCKS 代理。',
+
+	// settings — builds
+	'settings.builds.sources': '构建来源',
+	'settings.builds.sourcesHint': '检查更新时额外包含的仓库。',
+	'settings.builds.bforartists': 'Bforartists',
+	'settings.builds.upbge': 'UPBGE',
+	'settings.builds.checking': '检查频率',
+	'settings.builds.interval': '每隔',
+	'settings.builds.intervalUnit': '小时检查一次',
+	'settings.builds.downloads': '下载',
+	'settings.builds.maxConcurrent': '同时下载的最大数量',
+	'settings.builds.maxConcurrentHint': '下次启动程序时生效。',
+	'settings.builds.launching': '启动',
+	'settings.builds.hotkey': '快捷启动快捷键',
+	'settings.builds.hotkeyHint': '用于启动快捷启动列表中的第一个构建。',
+	'settings.builds.args': '启动参数',
+	'settings.builds.argsHint': '每次启动 Blender 都会附加，用空格分隔。',
+
+	// settings — library
+	'settings.library.title': '库维护',
+	'settings.library.scan': '扫描库',
+	'settings.library.scanning': '正在扫描…',
+	'settings.library.reloadStats': '刷新统计',
+	'settings.library.cleanup': '删除临时文件',
+	'settings.library.installed': '已安装构建',
+	'settings.library.totalSize': '总大小',
+	'settings.library.orphaned': '已下架',
+	'settings.library.corrupt': '缺少可执行文件',
+	'settings.library.corruptTitle': '以下文件夹内没有找到 Blender 可执行文件',
+	'settings.library.cleaned': '已删除 {files} 个文件，释放 {size}',
+
+	// build entry dialog
+	'dialog.title': '构建条目',
+	'dialog.subtitle': '为以下文件夹创建条目',
+	'dialog.executable': '可执行文件',
+	'dialog.executableRequired': '必填',
+	'dialog.autodetect': '自动检测',
+	'dialog.subversion': '版本',
+	'dialog.hash': '构建哈希',
+	'dialog.commitTime': '提交时间',
+	'dialog.branch': '分支名称',
+	'dialog.customName': '显示名称',
+	'dialog.accept': '添加构建',
+	'dialog.cancel': '取消',
+	'dialog.saving': '正在添加…',
+
+	// onboarding
+	'wizard.welcome.title': '欢迎使用 Blender Launcher',
+	'wizard.welcome.body': '这里会带你过一遍最常调整的几项设置，之后随时可以回来修改。',
+	'wizard.step': '第 {current} 步，共 {total} 步',
+	'wizard.skip': '跳过设置',
+	'wizard.back': '上一步',
+	'wizard.next': '继续',
+	'wizard.finish': '开始使用',
+	'wizard.library.title': '库位置',
+	'wizard.library.body': '下载的构建会存放在这里。选一个空间充足、且不需要管理员权限的文件夹。',
+	'wizard.library.warning': '不要使用 C:/Program Files，程序没有写入权限。',
+	'wizard.browse': '浏览',
+	'wizard.repos.title': '构建来源',
+	'wizard.repos.body': '选择要检查哪些仓库的构建。',
+	'wizard.background.title': '后台运行',
+	'wizard.background.body': '启用托盘图标后，关闭窗口不会退出程序。',
+	'wizard.background.toggle': '最小化到托盘而不是退出',
+
+	// errors and misc
+	'error.dropBlendOnly': '只能通过拖动打开 .blend 文件。',
+	'error.noInstalled': '没有已安装的 Blender 构建。',
+	'error.downloadFailed': '下载失败：{error}',
+	'menu.openPrevious': '打开上次的文件',
+	'menu.quickLaunchAdd': '加入快捷启动',
+	'menu.quickLaunchRemove': '移出快捷启动',
+	'menu.favAdd': '加入收藏',
+	'menu.favRemove': '取消收藏',
+	'menu.update': '更新此构建',
+	'menu.debug': '调试',
+	'menu.debugLog': '调试日志',
+	'menu.factoryStartup': '出厂启动',
+	'menu.debugGpu': '调试 GPU',
+	'menu.debugGpuWorkaround': 'GPU 故障绕过调试',
+	'menu.register': '用本程序打开 .blend',
+	'menu.shortcut': '创建快捷方式',
+	'menu.symlink': '创建符号链接',
+	'menu.template': '安装模板',
+	'menu.portable': '切换便携模式',
+	'menu.copyHash': '复制构建哈希',
+	'menu.renameBranch': '移动到分支',
+	'menu.notes': '查看发布说明',
+	'menu.folder': '打开构建文件夹',
+	'menu.edit': '编辑构建…',
+	'confirm.deleteOne': '要从磁盘删除 Blender {version} 吗？',
+	'confirm.deleteMany': '要从磁盘删除 {count} 个构建吗？',
+	'menu.deleteOne': '从磁盘删除',
+	'menu.deleteMany': '删除 {count} 个构建'
+};
+
+export default zh;

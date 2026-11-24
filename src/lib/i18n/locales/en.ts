@@ -1,0 +1,248 @@
+/**
+ * English — the reference locale. Every other locale is typed against this
+ * one, so a missing key is a compile error rather than a runtime fallback.
+ */
+export default {
+	// window chrome
+	'window.minimize': 'Minimize',
+	'window.maximize': 'Maximize',
+	'window.close': 'Close',
+	'window.resize': 'Resize window',
+
+	// main tabs
+	'tab.library': 'Library',
+	'tab.downloads': 'Downloads',
+	'tab.favorites': 'Favorites',
+
+	// table
+	'col.version': 'Version',
+	'col.branch': 'Branch',
+	'col.commitTime': 'Commit Time',
+	'col.uploadTime': 'Upload Time',
+	'col.buildHash': 'Build Hash',
+
+	// row actions
+	'action.launch': 'Launch',
+	'action.download': 'Download',
+	'action.running': 'Running',
+	'action.reload': 'Reload',
+	'action.check': 'Check',
+	'action.settings': 'Settings',
+	'action.update': 'Update Blender to the latest version',
+	'action.runningInstances': 'Running instances',
+
+	// status bar
+	'status.lastCheck': 'Last check at',
+	'status.never': 'never',
+	'status.scanLibrary': 'Scan library',
+	'status.rescanLibrary': 'Rescan library',
+	'status.checking': 'Checking for new builds…',
+	'status.ready': 'Ready',
+
+	// empty states
+	'empty.library': 'No builds of this type were found',
+	'empty.downloads': 'No new builds available',
+	'empty.favorites': 'Nothing to show yet',
+
+	// search
+	'search.placeholder': 'Search builds',
+
+	// detail panel
+	'detail.title': 'Details',
+	'detail.empty': 'Select a build to see details',
+	'detail.show': 'Show details panel',
+	'detail.hide': 'Hide details panel',
+	'detail.commitTime': 'Commit time',
+	'detail.size': 'Download size',
+	'detail.hash': 'Build hash',
+	'detail.path': 'Install path',
+	'detail.notes': 'Release notes',
+	'detail.updateAvailable': 'A newer build of this branch is available.',
+	'detail.multiSelected': '{count} builds selected — showing one',
+	'detail.load': 'Load',
+	'detail.copy': 'Copy',
+	'detail.open': 'Open',
+	'detail.fetch': 'Fetch',
+	'detail.reloading': 'Loading…',
+	'detail.unknown': 'unknown',
+	'detail.noNotes': 'No release notes available for this build.',
+
+	// settings — navigation
+	'settings.title': 'Settings',
+	'settings.nav.general': 'General',
+	'settings.nav.appearance': 'Appearance',
+	'settings.nav.connection': 'Connection',
+	'settings.nav.builds': 'Builds',
+	'settings.nav.library': 'Library',
+	'settings.save': 'Save changes',
+	'settings.saving': 'Saving…',
+	'settings.saved': 'Changes saved',
+	'settings.loading': 'Loading settings…',
+
+	// settings — general
+	'settings.general.paths': 'Folders',
+	'settings.general.libraryFolder': 'Library folder',
+	'settings.general.libraryFolderHint': 'Where downloaded Blender builds are stored.',
+	'settings.general.cacheFolder': 'Cache folder',
+	'settings.general.cacheFolderHint': 'Holds the build list cache and temporary files.',
+	'settings.general.browse': 'Browse',
+	'settings.general.association': 'File association',
+	'settings.general.register': 'Register .blend files',
+	'settings.general.registerHint':
+		'Opens .blend files with Blender Launcher so you can pick a build first.',
+	'settings.general.registered': 'Registered',
+	'settings.general.behavior': 'Behaviour',
+	'settings.autoCheck': 'Check for new builds automatically',
+	'settings.showUpdate': 'Show the update button on installed builds',
+	'settings.notify': 'Notify when new builds appear',
+	'settings.tray': 'Minimize to tray',
+	'settings.trayHint': 'Closing the window keeps the app running in the background.',
+	'settings.startMinimized': 'Start minimized to tray',
+	'settings.startMinimizedHint': 'Requires the tray icon to be enabled.',
+	'settings.startOnBoot': 'Launch when Windows starts',
+	'settings.highDpi': 'Scale interface with system DPI',
+
+	// settings — appearance
+	'settings.appearance.window': 'Window',
+	'settings.appearance.mica': 'Mica background',
+	'settings.appearance.micaHint':
+		'Blends the window with the desktop wallpaper. Requires Windows 11 22H2 or newer.',
+	'settings.appearance.micaActive': 'Mica is active.',
+	'settings.appearance.micaUnavailable': 'Not available on this system — a solid background is used.',
+	'settings.appearance.theme': 'Theme',
+	'settings.appearance.themeHint': 'System follows the Windows light and dark setting.',
+	'settings.theme.dark': 'Dark',
+	'settings.theme.light': 'Light',
+	'settings.theme.system': 'System',
+	'settings.appearance.language': 'Language',
+	'settings.appearance.languageAuto': 'Match system',
+	'settings.appearance.languageHint': 'Labels update immediately; no restart needed.',
+	'settings.appearance.accentGroup': 'Colour',
+	'settings.appearance.languageGroup': 'Language & region',
+	'settings.appearance.layoutGroup': 'Interface',
+	'settings.appearance.accent': 'Accent colour',
+	'settings.appearance.accentHint':
+		'Changes the highlight colour only. Success, warning and error colours stay semantic.',
+	'settings.appearance.layout': 'Layout',
+	'settings.appearance.layoutHint': 'How the build list and navigation are arranged.',
+	'settings.layout.classic': 'Classic',
+	'settings.layout.classicDesc': 'Vertical tabs on the left, full row height',
+	'settings.layout.wide': 'Wide',
+	'settings.layout.wideDesc': 'Tabs across the top, compact rows',
+	'settings.layout.detail': 'Detail',
+	'settings.layout.detailDesc': 'Wide rows plus a details panel',
+
+	// settings — connection
+	'settings.connection.windows': 'Windows integration',
+	'settings.connection.registerApp': 'Add to Apps & Features',
+	'settings.connection.registering': 'Registering…',
+	'settings.connection.registered': 'Listed in Apps & Features',
+	'settings.connection.registerHint':
+		'Adds an uninstall entry so Windows can remove the app normally. It does not register a WinGet package, so winget upgrade will not replace your installation.',
+	'settings.connection.proxy': 'Proxy',
+	'settings.connection.proxyEnable': 'Use a proxy for downloads and build checks',
+	'settings.connection.type': 'Type',
+	'settings.connection.host': 'Host',
+	'settings.connection.port': 'Port',
+	'settings.connection.username': 'Username',
+	'settings.connection.password': 'Password',
+	'settings.connection.proxyHint':
+		'The password is stored as plain text in settings.json. Leave it empty if your proxy does not require one.',
+	'settings.connection.socksHint': 'SOCKS proxies are not supported.',
+
+	// settings — builds
+	'settings.builds.sources': 'Build sources',
+	'settings.builds.sourcesHint': 'Extra repositories to include when checking for builds.',
+	'settings.builds.bforartists': 'Bforartists',
+	'settings.builds.upbge': 'UPBGE',
+	'settings.builds.checking': 'Checking',
+	'settings.builds.interval': 'Check every',
+	'settings.builds.intervalUnit': 'hours',
+	'settings.builds.downloads': 'Downloads',
+	'settings.builds.maxConcurrent': 'Maximum concurrent downloads',
+	'settings.builds.maxConcurrentHint': 'Takes effect the next time the app starts.',
+	'settings.builds.launching': 'Launching',
+	'settings.builds.hotkey': 'Quick launch shortcut',
+	'settings.builds.hotkeyHint': 'Launches the first build in your quick launch list.',
+	'settings.builds.args': 'Startup arguments',
+	'settings.builds.argsHint': 'Passed to every Blender launch, separated by spaces.',
+
+	// settings — library
+	'settings.library.title': 'Library maintenance',
+	'settings.library.scan': 'Scan library',
+	'settings.library.scanning': 'Scanning…',
+	'settings.library.reloadStats': 'Refresh statistics',
+	'settings.library.cleanup': 'Delete temporary files',
+	'settings.library.installed': 'Installed builds',
+	'settings.library.totalSize': 'Total size',
+	'settings.library.orphaned': 'Not in repository',
+	'settings.library.corrupt': 'Missing executable',
+	'settings.library.corruptTitle': 'These folders have no Blender executable',
+	'settings.library.cleaned': 'Deleted {files} file(s), freed {size}',
+
+	// build entry dialog
+	'dialog.title': 'Build entry',
+	'dialog.subtitle': 'Create a new entry for',
+	'dialog.executable': 'Executable',
+	'dialog.executableRequired': 'Required',
+	'dialog.autodetect': 'Detect automatically',
+	'dialog.subversion': 'Version',
+	'dialog.hash': 'Build hash',
+	'dialog.commitTime': 'Commit time',
+	'dialog.branch': 'Branch name',
+	'dialog.customName': 'Display name',
+	'dialog.accept': 'Add build',
+	'dialog.cancel': 'Cancel',
+	'dialog.saving': 'Adding…',
+
+	// onboarding
+	'wizard.welcome.title': 'Welcome to Blender Launcher',
+	'wizard.welcome.body':
+		'This setup walks through the few settings most people want to change. You can revisit all of them later.',
+	'wizard.step': 'Step {current} of {total}',
+	'wizard.skip': 'Skip setup',
+	'wizard.back': 'Back',
+	'wizard.next': 'Continue',
+	'wizard.finish': 'Get started',
+	'wizard.library.title': 'Library location',
+	'wizard.library.body':
+		'Downloaded builds are stored here. Choose a folder with room to grow, and avoid protected system folders.',
+	'wizard.library.warning': 'Avoid C:/Program Files — the app cannot write there without admin rights.',
+	'wizard.browse': 'Browse',
+	'wizard.repos.title': 'Build sources',
+	'wizard.repos.body': 'Choose which repositories to check for builds.',
+	'wizard.background.title': 'Run in the background',
+	'wizard.background.body':
+		'Keep Blender Launcher running with a tray icon so closing the window does not quit the app.',
+	'wizard.background.toggle': 'Minimize to tray instead of quitting',
+
+	// errors and misc
+	'error.dropBlendOnly': 'Only .blend files can be opened this way.',
+	'error.noInstalled': 'No installed Blender builds.',
+	'error.downloadFailed': 'Download failed: {error}',
+	'menu.openPrevious': 'Open previous file',
+	'menu.quickLaunchAdd': 'Add to quick launch',
+	'menu.quickLaunchRemove': 'Remove from quick launch',
+	'menu.favAdd': 'Add to favourites',
+	'menu.favRemove': 'Remove from favourites',
+	'menu.update': 'Update build',
+	'menu.debug': 'Debug',
+	'menu.debugLog': 'Debug log',
+	'menu.factoryStartup': 'Factory startup',
+	'menu.debugGpu': 'Debug GPU',
+	'menu.debugGpuWorkaround': 'Debug GPU glitch workaround',
+	'menu.register': 'Open .blend with this app',
+	'menu.shortcut': 'Create shortcut',
+	'menu.symlink': 'Create symlink',
+	'menu.template': 'Install template',
+	'menu.portable': 'Toggle portable mode',
+	'menu.copyHash': 'Copy build hash',
+	'menu.renameBranch': 'Move to branch',
+	'menu.notes': 'Show release notes',
+	'menu.folder': 'Show build folder',
+	'menu.edit': 'Edit build…',
+	'confirm.deleteOne': 'Delete Blender {version} from disk?',
+	'confirm.deleteMany': 'Delete {count} builds from disk?',
+	'menu.deleteOne': 'Delete from drive',
+	'menu.deleteMany': 'Delete {count} builds from drive'
+} as const;

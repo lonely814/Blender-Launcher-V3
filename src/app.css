@@ -1,0 +1,197 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * 字体。
+ *
+ * 之前 tailwind.config.js 声明了 Inter / JetBrains Mono，但项目里没有任何字体文件，
+ * 所有机器都在用系统回退字体——界面观感与设计意图不一致。这里自托管两者的可变字重
+ * 子集（woff2，随包分发，不联网），并用 unicode-range 只覆盖拉丁字符。
+ *
+ * 中文字形不打包：微软雅黑单文件 18 MB，Win11 自带的版本质量足够，
+ * 让 Inter 管拉丁、系统字体管中文，两者在小字号下视觉重量接近。
+ */
+@font-face {
+	font-family: 'Inter Variable';
+	font-style: normal;
+	font-display: swap;
+	font-weight: 100 900;
+	src: url('@fontsource-variable/inter/files/inter-latin-wght-normal.woff2') format('woff2-variations');
+	unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+		U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+2074, U+20AC, U+2122, U+2191,
+		U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+	font-family: 'JetBrains Mono Variable';
+	font-style: normal;
+	font-display: swap;
+	font-weight: 100 800;
+	src: url('@fontsource-variable/jetbrains-mono/files/jetbrains-mono-latin-wght-normal.woff2')
+		format('woff2-variations');
+	unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+		U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+2074, U+20AC, U+2122, U+2191,
+		U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+
+/*
+ * 主题令牌。Tailwind 的 colors 全部引用这些变量（tailwind.config.js），
+ * 所以切换 [data-theme] 就换整套配色，组件类名一个都不用改。
+ * 取值是空格分隔的 RGB 三通道，配合 <alpha-value> 支持 /60 这类透明度修饰符。
+ *
+ * dark 是原版采样值（docs/docs/imgs/library_stable.png）：中性灰、无蓝调。
+ */
+@layer base {
+	:root {
+		/* 西文 Inter，中文落到系统最佳选项。顺序即回退链。 */
+		--font-sans: 'Inter Variable', 'Segoe UI Variable Text', 'Segoe UI',
+			'Microsoft YaHei UI', 'Microsoft YaHei', 'PingFang SC', system-ui, sans-serif;
+		--font-mono: 'JetBrains Mono Variable', 'Cascadia Mono', Consolas,
+			'Microsoft YaHei UI', monospace;
+	}
+
+	:root,
+	[data-theme='dark'] {
+		--surface-0: 27 27 27;
+		--surface-1: 35 35 35;
+		--surface-2: 40 40 40;
+		--surface-3: 43 43 43;
+		--surface-4: 66 66 66;
+		--surface-5: 78 78 78;
+		--surface-alt: 45 45 45;
+
+		--accent: 232 163 61;
+		/* accent 作按钮底色时的文字色。白色在橙底上只有 2.16:1，
+		   所以深色主题用深色字（7.29:1）。 */
+		--accent-ink: 35 35 35;
+		--success: 89 143 76;
+		--danger: 166 64 58;
+		--info: 63 110 158;
+
+		--ink-1: 220 220 220;
+		--ink-2: 168 168 168;
+		--ink-3: 122 122 122;
+
+		--scrim: 0 0 0;
+
+		color-scheme: dark;
+	}
+
+	/*
+	 * 亮色：同一套灰阶关系反向（surface 数字越小越靠外、越浅）。
+	 * accent 压暗一档——原版橙 #E8A33D 在 #F5F5F5 上对比度不足。
+	 */
+	[data-theme='light'] {
+		--surface-0: 255 255 255;
+		--surface-1: 245 245 245;
+		--surface-2: 250 250 250;
+		--surface-3: 236 236 236;
+		--surface-4: 209 209 209;
+		--surface-5: 196 196 196;
+		--surface-alt: 242 242 242;
+
+		--accent: 191 116 12;
+		/* 浅色主题下压暗的 accent 配白字才够对比（3.67:1，仅用于按钮）； */
+		--accent-ink: 255 255 255;
+		--success: 63 122 52;
+		--danger: 176 48 42;
+		--info: 39 92 145;
+
+		--ink-1: 32 32 32;
+		--ink-2: 82 82 82;
+		--ink-3: 122 122 122;
+
+		--scrim: 32 32 32;
+
+		color-scheme: light;
+	}
+
+	* {
+		@apply border-surface-4;
+	}
+
+	/*
+	 * Mica 是 DWM 画在窗口背后的系统材质，页面只要有完全不透明的底色
+	 * 就会把它整块盖住。所以根节点保持透明，由应用外壳给半透明底色：
+	 * 半透明层叠在 Mica 上，既能看到材质又有足够对比度。
+	 */
+	html,
+	body {
+		background: transparent;
+	}
+
+	body {
+		@apply font-sans text-ink-1 antialiased;
+		transition: color 120ms ease-out;
+		/* Inter 的 cv05/cv11 把 l 和 1 区分开，版本号里很关键 */
+		font-feature-settings: 'cv05' 1, 'cv11' 1;
+		text-rendering: optimizeLegibility;
+	}
+
+	h1, h2, h3, h4, h5, h6 {
+		@apply tracking-tight;
+	}
+
+	/*
+	 * 强调色板。每个色板给 dark / light 两组值：
+	 * light 版本一律压暗，保证在浅底上作为文字/图标仍有对比度。
+	 * accent-ink 是「accent 作底色时的前景色」，随主题反转。
+	 */
+	[data-theme='dark'][data-accent='blue'] {
+		--accent: 92 147 201;
+		--accent-ink: 22 32 42;
+	}
+	[data-theme='dark'][data-accent='green'] {
+		--accent: 107 168 92;
+		--accent-ink: 23 36 20;
+	}
+	[data-theme='dark'][data-accent='purple'] {
+		--accent: 168 124 214;
+		--accent-ink: 32 22 44;
+	}
+	[data-theme='dark'][data-accent='rose'] {
+		--accent: 214 110 124;
+		--accent-ink: 42 18 24;
+	}
+
+	[data-theme='light'][data-accent='blue'] {
+		--accent: 39 92 145;
+		--accent-ink: 255 255 255;
+	}
+	[data-theme='light'][data-accent='green'] {
+		--accent: 52 110 44;
+		--accent-ink: 255 255 255;
+	}
+	[data-theme='light'][data-accent='purple'] {
+		--accent: 110 66 160;
+		--accent-ink: 255 255 255;
+	}
+	[data-theme='light'][data-accent='rose'] {
+		--accent: 168 58 78;
+		--accent-ink: 255 255 255;
+	}
+}
+
+@layer components {
+	/*
+	 * 应用外壳。默认给不透明底色（Mica 不可用时就是普通窗口）；
+	 * 系统支持 Mica 时由 [data-mica='on'] 切成半透明，让材质透出来。
+	 * 透明度取 0.72：再低会把正文对比度拖到 4.5:1 以下。
+	 */
+	.app-shell {
+		background-color: rgb(var(--surface-1));
+		/* 与 DWM 在 shadow:true 下给的圆角对齐，避免四角露出底色。 */
+		border-radius: 8px;
+	}
+
+	[data-mica='on'] .app-shell {
+		background-color: rgb(var(--surface-1) / 0.72);
+	}
+
+	/* Mica 生效时，内部区块也要跟着半透明，否则整片不透明又把它盖住。 */
+	[data-mica='on'] .mica-surface {
+		background-color: rgb(var(--surface-2) / 0.55);
+	}
+}

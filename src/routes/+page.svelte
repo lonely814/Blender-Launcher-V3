@@ -612,6 +612,19 @@
 		}
 	}
 
+	/**
+	 * 右键菜单条目，顺序与图标对齐原版 `library_widget.py:276-318`：
+	 *
+	 *   打开上一个文件 / 快速启动 / 收藏 / 更新
+	 *   ──────
+	 *   调试 ▸ / 注册扩展 / 快捷方式 / 符号链接 / 模板 / 便携 / 复制哈希 / 冻结更新
+	 *   ──────
+	 *   发布说明
+	 *   构建文件夹 / 配置文件夹 / 编辑构建… / 删除
+	 *
+	 * 之前缺「显示配置文件夹」和「冻结更新」，且删除项没有回收站/永久删除
+	 * 的 Shift 切换，与截图里的原版菜单对不上。
+	 */
 	function menuItems(build: Build | null): MenuItem[] {
 		if (!build) return [];
 		// 原版：多选时右键只给 Delete（library_widget.py:347-352）。
@@ -619,6 +632,7 @@
 			return [
 				{
 					label: tr('menu.deleteMany', { count: selected.size }),
+					icon: 'delete',
 					action: () => void confirmRemoveSelection()
 				}
 			];
@@ -629,19 +643,25 @@
 		const items: MenuItem[] = [];
 
 		if (installed) {
-			items.push({ label: tr('menu.openPrevious'), action: () => void handleRowDefault(build, true) });
+			items.push({
+				label: tr('menu.openPrevious'),
+				icon: 'file',
+				action: () => void handleRowDefault(build, true)
+			});
 			items.push({
 				label: inQuickLaunch ? tr('menu.quickLaunchRemove') : tr('menu.quickLaunchAdd'),
+				icon: 'quickLaunch',
 				action: () => void toggleQuick(build.id)
 			});
 		}
 		items.push({
 			label: isFavorite ? tr('menu.favRemove') : tr('menu.favAdd'),
+			icon: 'favorite',
 			action: () => void toggleFavorite(build.id)
 		});
 
 		if (build.update_build_id && ($settings?.show_update_button ?? true)) {
-			items.push({ label: tr('menu.update'), action: () => void handleUpdate(build) });
+			items.push({ label: tr('menu.update'), icon: 'update', action: () => void handleUpdate(build) });
 		}
 
 		if (installed) {
@@ -679,6 +699,11 @@
 				action: () => void togglePortable(build)
 			});
 			items.push({ label: tr('menu.copyHash'), action: () => void copyHash(build) });
+			// 原版 freezeUpdate 文案随状态切换（冻结更新 / 解除冻结更新）。
+			items.push({
+				label: build.is_frozen ? tr('menu.unfreezeUpdate') : tr('menu.freezeUpdate'),
+				action: () => void toggleFrozen(build)
+			});
 			items.push({
 				label: tr('menu.renameBranch'),
 				children: ['stable', 'daily', 'experimental', 'patch'].map((branchName) => ({
@@ -699,27 +724,30 @@
 		if (build.install_path) {
 			items.push({
 				label: tr('menu.folder'),
+				icon: 'folder',
 				action: () => void api.openInExplorer(build.install_path!)
+			});
+			// 原版 showConfigFolderAction：便携模式显示「显示便携配置文件夹」。
+			items.push({
+				label: tr('menu.configFolder'),
+				icon: 'folder',
+				action: () => void openConfigFolder(build)
 			});
 		}
 
 		if (installed) {
 			items.push({
 				label: tr('menu.edit'),
-				action: () => {
-					dialogPath = build.install_path ?? null;
-					dialogInitial = {
-						executable: '',
-						subversion: build.version,
-						branch: build.branch,
-						custom_name: ''
-					};
-				}
+				icon: 'settings',
+				action: () => void openEditDialog(build)
 			});
-			items.push({ separator: true });
+			// 原版删除项：按住 Shift 在「移至回收站 / 从磁盘删除」之间切换。
+			// withShift 由 ContextMenu 在点击时传入，决定 toTrash 的真假。
 			items.push({
-				label: tr('menu.deleteOne'),
-				action: () => void confirmRemove(build)
+				label: tr('menu.trash'),
+				altLabel: tr('menu.deleteOne'),
+				icon: 'trash',
+				action: (withShift) => void confirmRemove(build, !withShift)
 			});
 		}
 		return items;
@@ -780,6 +808,50 @@
 		}
 	}
 
+	/** 冻结/解冻更新（原版 freeze_update）：冻结后不再提示该构建有新版。 */
+	async function toggleFrozen(build: Build): Promise<void> {
+		try {
+			await api.setBuildFrozen(build.id, !build.is_frozen);
+			await reloadBuilds();
+		} catch (err) {
+			appError.set(String(err));
+		}
+	}
+
+	/** 显示配置文件夹：便携优先，否则系统用户配置目录。 */
+	async function openConfigFolder(build: Build): Promise<void> {
+		try {
+			await api.openConfigFolder(build.id);
+		} catch (err) {
+			appError.set(String(err));
+		}
+	}
+
+	/**
+	 * 打开「编辑构建」对话框。
+	 *
+	 * 字段必须从 `.blinfo` 原样读回来，不能拿 `Build` 拼：`build_hash` 与
+	 * `commit_time` 不在 `Build` 上，拼出来的对象会让 write_blinfo 把这两个
+	 * 字段重置掉——用户改了自定义名，构建哈希却没了，看上去就是「保存无效」。
+	 */
+	async function openEditDialog(build: Build): Promise<void> {
+		try {
+			const info = await api.getBuildInfo(build.id);
+			dialogInitial = { ...info };
+			dialogPath = info.path || build.install_path || null;
+		} catch (err) {
+			// .blinfo 缺失时仍允许打开，只是字段为空，由用户手填。
+			dialogInitial = {
+				executable: '',
+				subversion: build.version,
+				branch: build.branch,
+				custom_name: build.label ?? ''
+			};
+			dialogPath = build.install_path ?? null;
+			appError.set(String(err));
+		}
+	}
+
 	async function moveBranch(build: Build, branch: string): Promise<void> {
 		try {
 			await api.moveBuildToCategory(build.id, branch);
@@ -789,10 +861,17 @@
 		}
 	}
 
-	async function confirmRemove(build: Build): Promise<void> {
-		if (!window.confirm(tr('confirm.deleteOne', { version: build.version }))) return;
+	/**
+	 * 删除一个构建。`toTrash` 决定回收站还是永久删除：
+	 * 原版默认回收站，按住 Shift 反转为永久删除（library_widget.py:364-371）。
+	 */
+	async function confirmRemove(build: Build, toTrash = true): Promise<void> {
+		const message = toTrash
+			? tr('confirm.trashOne', { version: build.version })
+			: tr('confirm.deleteOne', { version: build.version });
+		if (!window.confirm(message)) return;
 		try {
-			await api.removeBuild(build.id, false);
+			await api.removeBuild(build.id, false, toTrash);
 			await reloadBuilds();
 		} catch (err) {
 			appError.set(String(err));
@@ -1112,7 +1191,6 @@
 		<ContextMenu
 			x={menu.x}
 			y={menu.y}
-			build={menu.build}
 			items={menuItems(menu.build)}
 			onClose={() => (menu = null)}
 		/>

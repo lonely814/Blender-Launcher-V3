@@ -38,22 +38,29 @@ async fn scrape_sources(settings: &Settings) -> Vec<Build> {
         }
     }
 
-    // 只保留能在本机跑的包。
+    // 只保留本机能跑、且是**便携归档**的包。
     //
-    // 之前不过滤：下载页把 windows-arm64 的包也列出来，用户在 x64 机器上
-    // 点了就真下 700 MB 的错包（2026-11-25 实测踩到）。构建来源页面本身
-    // 就同时列了各架构，按本机架构筛是这一层该做的事。
+    // 平台/架构：之前不过滤，下载页把 windows-arm64 的包也列出来，用户在
+    // x64 机器上点了就真下 700 MB 的错包（2026-11-25 实测踩到）。
+    //
+    // 便携归档：原版 `regex_filter` 按平台只收 zip / dmg / tar.*，`msi`、
+    // `msix` 是安装器，装进系统后不在构建库里。我们早先照收，导致同一个
+    // 版本出现 zip/msi/msix 三行。
     let platform = Scraper::detect_platform();
     let architecture = Scraper::detect_architecture();
     let before = builds.len();
-    builds.retain(|build| build.platform == platform && build.architecture == architecture);
+    builds.retain(|build| {
+        build.platform == platform
+            && build.architecture == architecture
+            && crate::service::scraper::is_portable_build(build)
+    });
     if builds.len() != before {
         tracing::info!(
             kept = builds.len(),
             dropped = before - builds.len(),
             ?platform,
             ?architecture,
-            "filtered builds by host platform"
+            "filtered builds by host platform and portable archive"
         );
     }
     builds
@@ -355,6 +362,8 @@ mod tests {
             breaking_changes: None,
             is_installed: false,
             install_path: None,
+            label: None,
+            is_frozen: false,
             update_build_id: None,
         }
     }

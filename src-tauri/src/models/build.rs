@@ -17,6 +17,13 @@ pub struct Build {
     pub breaking_changes: Option<Vec<String>>,
     pub is_installed: bool,
     pub install_path: Option<PathBuf>,
+    /// 分支列的显示文案。原版 `BuildInfo.display_label`：有自定义名称就用它，
+    /// 否则按分支/变体生成一句人类可读的标签。`None` 表示用 `branch` 枚举名。
+    #[serde(default)]
+    pub label: Option<String>,
+    /// 冻结更新（原版 `.blinfo` 的 `is_frozen`）：为真时永久不提示更新。
+    #[serde(default)]
+    pub is_frozen: bool,
     /// 同 fork/branch/平台存在更新的远程版本时，指向那个版本的 id。
     /// Launch 按钮据此变成 Update。
     #[serde(default)]

@@ -262,12 +262,17 @@ const zh: Record<keyof typeof en, string> = {
 	'menu.copyHash': '复制构建哈希',
 	'menu.renameBranch': '移动到分支',
 	'menu.notes': '查看发布说明',
-	'menu.folder': '打开构建文件夹',
+	'menu.folder': '显示构建文件夹',
+	'menu.configFolder': '显示配置文件夹',
 	'menu.edit': '编辑构建…',
+	'menu.freezeUpdate': '冻结更新',
+	'menu.unfreezeUpdate': '解除冻结更新',
+	'confirm.trashOne': '要把 Blender {version} 移到回收站吗？',
 	'confirm.deleteOne': '要从磁盘删除 Blender {version} 吗？',
 	'confirm.deleteMany': '要从磁盘删除 {count} 个构建吗？',
 	'menu.deleteOne': '从磁盘删除',
 	'menu.deleteMany': '删除 {count} 个构建',
+	'menu.trash': '移至回收站',
 
 	// extensions（docs/06）
 	'ext.title': '插件',

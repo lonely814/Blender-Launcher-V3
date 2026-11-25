@@ -51,11 +51,17 @@ pub(crate) struct BlinfoEntry {
     #[serde(default)]
     pub(crate) build_hash: Option<String>,
     #[serde(default)]
-    commit_time: Option<String>,
+    pub(crate) commit_time: Option<String>,
     #[serde(default)]
     pub(crate) custom_name: String,
     #[serde(default)]
     pub(crate) is_favorite: bool,
+    #[serde(default)]
+    pub(crate) is_frozen: bool,
+    /// 用户在「编辑构建」里指定的可执行文件（相对构建目录）。
+    /// 启动时必须优先于候选列表，否则这个选择等于没保存。
+    #[serde(default)]
+    pub(crate) custom_executable: Option<String>,
 }
 
 #[derive(serde::Deserialize)]
@@ -239,22 +245,35 @@ fn local_build(
             .as_deref()
             .and_then(parse_commit_time)
             .unwrap_or(dir_date);
-        let version = if entry.custom_name.is_empty() {
-            entry.subversion.clone()
+        // `subversion` 是版本列的内容，`custom_name` 只影响分支列（原版
+        // `display_version` / `display_label` 两个独立的属性）。之前把
+        // custom_name 写进 version，导致编辑对话框保存后版本列被改名、
+        // 再次打开时 subversion 预填的是旧的自定义名，看起来像没保存。
+        let custom_name = entry.custom_name.trim();
+        let branch = resolve_branch(&entry, branch);
+        // 分支列文案：原版是 `custom_name or display_label`，而 display_label
+        // 在 custom/ 之外的类别里取的是 .blinfo 的 branch 字段（用户自己填的
+        // 名字，如 K-cycles）。所以只要 .blinfo 的 branch 不是内置枚举名，
+        // 就该原样显示它，而不是显示类别目录推导出来的 stable/daily。
+        let label = if !custom_name.is_empty() {
+            Some(custom_name.to_string())
         } else {
-            entry.custom_name.clone()
+            recorded_branch_label(&entry.branch).or_else(|| display_label(branch, entry.subversion.trim()))
         };
-        return build_local(
+        let mut build = build_local(
             dir_name,
             path,
-            version,
+            entry.subversion.clone(),
             platform,
             architecture,
-            resolve_branch(&entry, branch),
+            branch,
             resolve_fork(&entry, fork),
             release_date,
             is_custom,
         );
+        build.label = label;
+        build.is_frozen = entry.is_frozen;
+        return build;
     }
 
     // 2) 归档文件名/目录名解析。
@@ -383,14 +402,64 @@ fn build_local(
         breaking_changes: None,
         is_installed: true,
         install_path: Some(path.to_path_buf()),
+        label: None,
+        is_frozen: false,
         update_build_id: None,
+    }
+}
+
+/// `.blinfo` 的 branch 若不是内置枚举名，就是用户自填的分支标签
+/// （原版允许任意字符串，比如 `K-cycles`、`PR12345`）。
+/// 认出内置名时返回 None，交给 `display_label` 生成默认文案。
+fn recorded_branch_label(recorded: &str) -> Option<String> {
+    let value = recorded.trim();
+    if value.is_empty() {
+        return None;
+    }
+    const BUILTIN: [&str; 10] = [
+        "stable",
+        "lts",
+        "daily",
+        "experimental",
+        "patch",
+        "custom",
+        "bforartists",
+        "upbge-stable",
+        "upbge-weekly",
+        "upbge",
+    ];
+    (!BUILTIN.iter().any(|name| value.eq_ignore_ascii_case(name))).then(|| value.to_string())
+}
+
+/// 原版 `BuildInfo._display_label` 的等价实现：分支列的默认文案。
+///
+/// 不是 `branch.title()` 一行能替代的——daily 要显示 release cycle
+/// （`5.4.0-alpha+main.<hash>` → `Alpha`），patch 显示补丁号，
+/// stable 用 `branch` 本身即可，故返回 None 让前端回退。
+fn display_label(branch: BuildBranch, subversion: &str) -> Option<String> {
+    let fallback = match branch {
+        BuildBranch::Stable => return None,
+        BuildBranch::Daily => "Daily",
+        BuildBranch::Experimental => "Experimental",
+        BuildBranch::Patch => "Patch",
+    };
+    // 版本串里 `-alpha+main.<hash>` / `-stable+v53.<hash>` 的变体段。
+    let variant = subversion
+        .split_once('-')
+        .map(|(_, rest)| rest.split('+').next().unwrap_or(rest))
+        .unwrap_or_default()
+        .trim();
+    let mut chars = variant.chars();
+    match chars.next() {
+        Some(first) => Some(format!("{}{}", first.to_ascii_uppercase(), chars.as_str())),
+        None => Some(fallback.to_string()),
     }
 }
 
 /// 平台无关的用户配置目录：Windows/macOS 是
 /// `<config>/Blender Foundation/Blender/<major.minor>`，Linux 是
 /// `<config>/blender/<major.minor>`。
-fn user_data_dir(version: &str) -> Option<PathBuf> {
+pub(crate) fn user_data_dir(version: &str) -> Option<PathBuf> {
     let major_minor = version.split('.').take(2).collect::<Vec<_>>().join(".");
     if major_minor.is_empty() {
         return None;
@@ -423,6 +492,8 @@ mod tests {
             commit_time: None,
             custom_name: String::new(),
             is_favorite: false,
+            is_frozen: false,
+            custom_executable: None,
         };
         assert_eq!(resolve_branch(&entry, None), BuildBranch::Daily);
         assert_eq!(resolve_fork(&entry, None), BuildFork::Official);
@@ -443,6 +514,8 @@ mod tests {
             commit_time: None,
             custom_name: String::new(),
             is_favorite: false,
+            is_frozen: false,
+            custom_executable: None,
         };
         assert_eq!(resolve_fork(&entry, None), BuildFork::Bforartists);
         assert_eq!(
@@ -459,6 +532,38 @@ mod tests {
             let text = dir.to_string_lossy();
             assert!(text.ends_with("4.5"), "got {text}");
         }
+    }
+
+    /// 「编辑构建」保存后分支列必须显示用户填的名字。
+    ///
+    /// 回归点：旧实现把 custom_name 塞进 `version`，同时完全忽略
+    /// .blinfo 的 branch 字段——用户把分支改成 K-cycles，列表仍显示
+    /// 类别目录推导出的 Stable。
+    #[test]
+    fn test_custom_branch_name_survives_scan() {
+        // 用户自填的分支名不是内置枚举，应原样显示。
+        assert_eq!(
+            recorded_branch_label("K-cycles").as_deref(),
+            Some("K-cycles")
+        );
+        assert_eq!(recorded_branch_label("PR162828").as_deref(), Some("PR162828"));
+        // 内置名交给 display_label，不能原样回显（否则会显示小写 stable）。
+        assert_eq!(recorded_branch_label("stable"), None);
+        assert_eq!(recorded_branch_label("DAILY"), None);
+        assert_eq!(recorded_branch_label("  custom  "), None);
+        assert_eq!(recorded_branch_label("   "), None);
+
+        // stable 分支没有默认 label，由前端回退到枚举名。
+        assert_eq!(display_label(BuildBranch::Stable, "5.3.0"), None);
+        // daily 显示变体名（原版取 release cycle）。
+        assert_eq!(
+            display_label(BuildBranch::Daily, "5.4.0-alpha+main.6e8062bf2fae").as_deref(),
+            Some("Alpha")
+        );
+        assert_eq!(
+            display_label(BuildBranch::Daily, "5.4.0").as_deref(),
+            Some("Daily")
+        );
     }
 
     #[test]

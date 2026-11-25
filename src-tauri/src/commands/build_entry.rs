@@ -112,6 +112,30 @@ pub async fn detect_build_info(
     })
 }
 
+/// 读某个已安装构建的 `.blinfo` 完整字段，供「编辑构建」对话框预填。
+///
+/// 不能让前端自己拼：`build_hash` 与 `commit_time` 不在 `Build` 里，
+/// 对话框拿不到就只能留空，保存时 `write_blinfo` 会把 commit_time
+/// 重置成当前时间、build_hash 清空——用户只改了自定义名，却把
+/// 构建哈希冲掉了。原有字段一律从这里取。
+#[tauri::command]
+pub async fn get_build_info(build_id: String, state: State<'_, AppState>) -> Result<BuildInfoInput, String> {
+    let (build, install_path) = installed_build(&state, &build_id)?;
+    // 下载安装的构建没有 .blinfo，缺失时用 Build 的字段合成，
+    // 保证 subversion 非空——否则对话框的 versionValid 判空失败，
+    // Save 按钮被禁用，用户必须先手填版本号才能保存。
+    let entry = read_blinfo_json(&install_path).unwrap_or_else(|| synthesized_blinfo(&build));
+    Ok(BuildInfoInput {
+        path: install_path.clone(),
+        executable: entry.custom_executable.unwrap_or_default(),
+        subversion: entry.subversion,
+        build_hash: entry.build_hash,
+        commit_time: (!entry.commit_time.is_empty()).then_some(entry.commit_time),
+        branch: (!entry.branch.is_empty()).then_some(entry.branch),
+        custom_name: entry.custom_name,
+    })
+}
+
 /// 写 `.blinfo` 并返回扫描后的 Build，供前端立即显示（原版 init_unrecognized）。
 #[tauri::command]
 pub async fn save_custom_build(
@@ -320,6 +344,61 @@ pub async fn is_portable(build_id: String, state: State<'_, AppState>) -> Result
     Ok(portable_path(&install_path, &version).is_dir())
 }
 
+/// 冻结/解冻更新（原版 `freeze_update`）：写入 `.blinfo` 的 `is_frozen`。
+/// 冻结后不再提示该构建有更新。返回冻结后的状态。
+#[tauri::command]
+pub async fn set_build_frozen(
+    build_id: String,
+    frozen: bool,
+    app_handle: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<bool, String> {
+    let (build, install_path) = installed_build(&state, &build_id)?;
+    // 下载安装的构建没有 .blinfo；缺失时按 Build 字段合成一条再写，
+    // 这样「冻结更新」对所有已安装构建都可用，不只是手动添加的那些。
+    let mut entry = read_blinfo_json(&install_path).unwrap_or_else(|| synthesized_blinfo(&build));
+    entry.is_frozen = frozen;
+    write_blinfo_raw(&install_path, &entry).map_err(|err| err.to_string())?;
+
+    // 冻结状态影响 update_build_id，重扫一次让行内更新图标立即消失。
+    crate::commands::library::rescan(&state, &app_handle)
+        .await
+        .map_err(|err| err.to_string())?;
+    Ok(frozen)
+}
+
+/// 原版「显示配置文件夹」：优先打开构建目录内的 `portable/`，
+/// 否则回退到系统的 `<config>/Blender Foundation/Blender/<major.minor>`。
+///
+/// 返回实际打开的路径；两处都不存在时返回错误，由前端提示。
+#[tauri::command]
+pub async fn open_config_folder(build_id: String, state: State<'_, AppState>) -> Result<String, String> {
+    let (install_path, version) = installed_path(&state, &build_id)?;
+    let portable = portable_path(&install_path, &version);
+    if portable.is_dir() {
+        open_folder(&portable)?;
+        return Ok(portable.display().to_string());
+    }
+    let user_dir = crate::service::library::user_data_dir(&version)
+        .ok_or_else(|| "Unable to determine the user config folder".to_string())?;
+    if !user_dir.is_dir() {
+        return Err(format!("配置目录还不存在：{}（请先启动一次 Blender）", user_dir.display()));
+    }
+    open_folder(&user_dir)?;
+    Ok(user_dir.display().to_string())
+}
+
+/// 打开一个目录（与 `open_in_explorer` 同语义，供本模块内部复用）。
+fn open_folder(path: &Path) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    let result = std::process::Command::new("explorer").arg(path).spawn();
+    #[cfg(target_os = "macos")]
+    let result = std::process::Command::new("open").arg(path).spawn();
+    #[cfg(target_os = "linux")]
+    let result = std::process::Command::new("xdg-open").arg(path).spawn();
+    result.map(|_| ()).map_err(|err| err.to_string())
+}
+
 /// 注册 `.blend` 文件关联（Windows，HKCU 下，无需管理员）。
 #[tauri::command]
 pub async fn register_file_association(state: State<'_, AppState>) -> Result<(), String> {
@@ -382,6 +461,55 @@ pub async fn install_template(build_id: String, state: State<'_, AppState>) -> R
 }
 
 // ---------------------------------------------------------------- helpers
+
+/// 把 BuildBranch 转成 `.blinfo` 里存的分支名（与 serde 的 lowercase 一致）。
+fn branch_name(branch: crate::models::BuildBranch) -> &'static str {
+    match branch {
+        crate::models::BuildBranch::Stable => "stable",
+        crate::models::BuildBranch::Daily => "daily",
+        crate::models::BuildBranch::Experimental => "experimental",
+        crate::models::BuildBranch::Patch => "patch",
+    }
+}
+
+/// 按 Build 当前字段合成一条 `.blinfo` 条目。
+///
+/// 下载安装的构建**没有** `.blinfo`——下载器只解压归档，不写元数据文件。
+/// 冻结更新和编辑对话框都必须能作用在这些构建上，所以缺失时不能报错，
+/// 而是拿已经在 state 里的字段合成一条：版本号取 `Build.version`，
+/// 提交时间取 `release_date`，显示名取 `label`（自定义名）。
+///
+/// `is_favorite` 写 false 是安全的：收藏存在 SQLite，扫描只把 `.blinfo` 里
+/// 标记为收藏的并进去，不会把SQLite 里已有的收藏删掉。
+fn synthesized_blinfo(build: &Build) -> BlinfoEntry {
+    BlinfoEntry {
+        branch: branch_name(build.branch).to_string(),
+        subversion: build.version.clone(),
+        build_hash: None,
+        commit_time: build.release_date.to_rfc3339(),
+        custom_name: build.label.clone().unwrap_or_default(),
+        is_favorite: false,
+        custom_executable: None,
+        is_frozen: false,
+    }
+}
+
+/// 取 Build 本体和安装路径（需要 Build 额外字段的命令用）。
+fn installed_build(state: &AppState, build_id: &str) -> Result<(Build, PathBuf), String> {
+    let build = {
+        let builds = state.builds.lock().unwrap();
+        builds
+            .iter()
+            .find(|build| build.id == build_id)
+            .cloned()
+            .ok_or_else(|| format!("Build not found: {build_id}"))?
+    };
+    let path = build
+        .install_path
+        .clone()
+        .ok_or_else(|| "Build is not installed".to_string())?;
+    Ok((build, path))
+}
 
 fn installed_path(state: &AppState, build_id: &str) -> Result<(PathBuf, String), String> {
     let builds = state.builds.lock().unwrap();
@@ -468,6 +596,10 @@ struct BlinfoFile {
 }
 
 fn write_blinfo(dir: &Path, input: &BuildInfoInput, executable: &str) -> std::io::Result<()> {
+    // 编辑已有构建时保留 .blinfo 里不该被这个对话框改动的字段
+    // （收藏、冻结）。原版 `build_info_edited` 是整份 BuildInfo 回写，
+    // 我们只拿到对话框的字段，必须显式合并，否则每保存一次就丢一次收藏。
+    let previous = read_blinfo_json(dir);
     let entry = BlinfoEntry {
         branch: input.branch.clone().unwrap_or_else(|| "custom".into()),
         subversion: input.subversion.clone(),
@@ -476,10 +608,10 @@ fn write_blinfo(dir: &Path, input: &BuildInfoInput, executable: &str) -> std::io
             .commit_time
             .clone()
             .unwrap_or_else(|| chrono::Utc::now().to_rfc3339()),
-        custom_name: input.custom_name.clone(),
-        is_favorite: false,
+        custom_name: input.custom_name.trim().to_string(),
+        is_favorite: previous.as_ref().is_some_and(|old| old.is_favorite),
         custom_executable: Some(executable.to_string()),
-        is_frozen: false,
+        is_frozen: previous.as_ref().is_some_and(|old| old.is_frozen),
     };
     write_blinfo_raw(dir, &entry)
 }
@@ -570,6 +702,44 @@ mod tests {
         );
     }
 
+    /// 下载安装的构建没有 .blinfo，synthesized_blinfo 必须给出非空
+    /// subversion / 有效 commit_time，否则编辑对话框 Save 被禁用、
+    /// 冻结更新直接报错（审查发现的两个回归点）。
+    #[test]
+    fn test_synthesized_blinfo_for_downloaded_build() {
+        let build = Build {
+            id: "x".into(),
+            version: "5.2.5".into(),
+            branch: BuildBranch::Stable,
+            fork: BuildFork::Official,
+            platform: Platform::Windows,
+            architecture: Architecture::X64,
+            url: "https://example.com/a.zip".into(),
+            size_bytes: 1,
+            release_date: chrono::DateTime::parse_from_rfc3339("2026-11-25T04:02:14Z")
+                .unwrap()
+                .with_timezone(&chrono::Utc),
+            release_notes_url: None,
+            breaking_changes: None,
+            is_installed: true,
+            install_path: None,
+            label: None,
+            is_frozen: false,
+            update_build_id: None,
+        };
+        let entry = synthesized_blinfo(&build);
+        assert_eq!(entry.subversion, "5.2.5");
+        assert_eq!(entry.branch, "stable");
+        assert_eq!(
+            entry.commit_time,
+            "2026-11-25T04:02:14+00:00",
+            "commit_time 必须可解析"
+        );
+        assert!(entry.custom_name.is_empty());
+        assert!(!entry.is_frozen);
+        assert!(!entry.is_favorite, "收藏存在 SQLite，不能被合成条目覆盖");
+    }
+
     #[test]
     fn test_is_newer() {
         let make = |version: &str, date: &str| Build {
@@ -588,6 +758,8 @@ mod tests {
             breaking_changes: None,
             is_installed: false,
             install_path: None,
+            label: None,
+            is_frozen: false,
             update_build_id: None,
         };
         assert!(is_newer(&make("4.5.2", "2025-01-01T00:00:00Z"), &make("4.5.1", "2025-01-01T00:00:00Z")));

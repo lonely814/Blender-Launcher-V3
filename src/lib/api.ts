@@ -148,6 +148,11 @@ export async function saveCustomBuild(input: BuildInfoInput): Promise<Build> {
 	return invoke<Build>('save_custom_build', { input });
 }
 
+/** 读已安装构建的 `.blinfo` 完整字段，供编辑对话框预填。 */
+export async function getBuildInfo(buildId: string): Promise<BuildInfoInput> {
+	return invoke<BuildInfoInput>('get_build_info', { buildId });
+}
+
 export async function moveBuildToCategory(buildId: string, branch: string): Promise<void> {
 	return invoke('move_build_to_category', { buildId, branch });
 }
@@ -166,6 +171,16 @@ export async function togglePortable(buildId: string): Promise<boolean> {
 
 export async function isPortable(buildId: string): Promise<boolean> {
 	return invoke<boolean>('is_portable', { buildId });
+}
+
+/** 冻结/解冻更新（写入 .blinfo 的 is_frozen）。返回冻结后的状态。 */
+export async function setBuildFrozen(buildId: string, frozen: boolean): Promise<boolean> {
+	return invoke<boolean>('set_build_frozen', { buildId, frozen });
+}
+
+/** 打开该构建的配置目录：便携优先，否则系统用户目录。返回实际路径。 */
+export async function openConfigFolder(buildId: string): Promise<string> {
+	return invoke<string>('open_config_folder', { buildId });
 }
 
 export async function registerFileAssociation(): Promise<void> {

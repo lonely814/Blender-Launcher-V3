@@ -14,7 +14,7 @@
 
 | 能力 | 说明 |
 |---|---|
-| 版本抓取 | Stable / Daily / Experimental / Patch，外加 Bforartists、UPBGE、UPBGE Weekly |
+| 版本抓取 | Stable / Daily / Experimental / Patch，外加 Bforartists、UPBGE、UPBGE Weekly；只列本机平台的便携归档（Windows `.zip`、macOS `.dmg`、Linux `.tar.*`），安装器（`msi`/`msix`）不进列表 |
 | 下载管理 | 并发下载、暂停/恢复/取消、进度与 ETA、断点续传、清华 TUNA 镜像、镜像内容按官方 sha256 校验 |
 | 本地库扫描 | 识别 `.blinfo`，未知目录弹 Build Entry Creator 补全元数据 |
 | 更新检测 | 比对已装版本与远端，行内出现更新图标，点击下载新版 |

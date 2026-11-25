@@ -17,6 +17,10 @@ export interface Build {
 	breaking_changes?: string[];
 	is_installed: boolean;
 	install_path?: string;
+	/** 分支列显示文案（原版 display_label）。缺省时回退到 branch 枚举名。 */
+	label?: string | null;
+	/** 冻结更新：为真时永不提示该构建有新版。 */
+	is_frozen?: boolean;
 	/** 有新版本时指向那个版本的 id；Launch 按钮变成 Update。 */
 	update_build_id?: string | null;
 }
@@ -165,12 +169,28 @@ export interface BuildRow {
 
 export interface MenuItem {
 	label?: string;
-	action?: () => void;
+	/** 按住 Shift 时替换显示的文案（原版 delete/trash 二选一）。 */
+	altLabel?: string;
+	/** 打开菜单时是否按住 Shift。原版靠它切换删除动作，不只是切文案。 */
+	action?: (withShift?: boolean) => void;
 	separator?: boolean;
 	disabled?: boolean;
+	/** 左侧图标（原版 QAction::setIcon）。 */
+	icon?: MenuIcon;
 	/** 子菜单（原版 Debug 子菜单） */
 	children?: MenuItem[];
 }
+
+/** 右键菜单图标集，与 assets 里的 SVG 一一对应。 */
+export type MenuIcon =
+	| 'file'
+	| 'quickLaunch'
+	| 'favorite'
+	| 'update'
+	| 'folder'
+	| 'settings'
+	| 'delete'
+	| 'trash';
 
 // ------------------------------------------------------------ 插件与扩展（docs/06）
 

@@ -1348,6 +1348,8 @@ version = \"0.1.0\"
             breaking_changes: None,
             is_installed: true,
             install_path: None,
+            label: None,
+            is_frozen: false,
             update_build_id: None,
         };
         assert_eq!(platform_param(&build).as_deref(), Some("windows-x64"));

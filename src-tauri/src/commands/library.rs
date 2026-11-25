@@ -84,6 +84,12 @@ pub(crate) async fn rescan(state: &AppState, app_handle: &tauri::AppHandle) -> R
                 let remote = &mut builds[index];
                 remote.is_installed = true;
                 remote.install_path = local.install_path.clone();
+                // 本地扫描出来的显示文案与冻结状态必须一并带过去。
+                // 只合并 is_installed / install_path 的话，`.blinfo` 里刚写入的
+                // custom_name 和 is_frozen 会被丢在 `local` 里：编辑构建界面上
+                // 保存的自定义名看不到，冻结更新也永远不生效。
+                remote.label = local.label.clone();
+                remote.is_frozen = local.is_frozen;
             }
             None => builds.push(local), // 手动安装或已下架版本 → 孤立条目
         }
@@ -147,6 +153,11 @@ pub(crate) fn mark_updates(state: &AppState) {
     for build in builds.iter_mut() {
         build.update_build_id = None;
         if !build.is_installed || build.url.starts_with(LOCAL_URL_PREFIX) {
+            continue;
+        }
+        // 冻结更新（原版 `check_for_updates` 首行 `if is_frozen: return`）：
+        // 冻结后不再提示任何新版，用户想更新时得先解冻。
+        if build.is_frozen {
             continue;
         }
         let mut best: Option<&Build> = None;

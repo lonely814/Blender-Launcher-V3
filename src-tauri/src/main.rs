@@ -47,6 +47,21 @@ fn main() {
         Ok(db) => {
             match db.load_builds() {
                 Ok((builds, last_refresh)) => {
+                    // 丢掉旧版本缓存里的非便携条目（msi/msix）。3.1.1 及更早
+                    // 把安装器也收进了列表，它们已经落库；不清掉的话要等到
+                    // 下一次爬取才会消失。本地合成条目不受影响。
+                    let before = builds.len();
+                    let builds: Vec<_> = builds
+                        .into_iter()
+                        .filter(blender_launcher_lib::service::scraper::is_portable_build)
+                        .collect();
+                    if builds.len() != before {
+                        tracing::info!(
+                            kept = builds.len(),
+                            dropped = before - builds.len(),
+                            "dropped non-portable builds from cached list"
+                        );
+                    }
                     let count = builds.len();
                     *state.builds.lock().unwrap() = builds;
                     *state.builds_last_refresh.lock().unwrap() = last_refresh;
@@ -141,12 +156,15 @@ fn main() {
             commands::library::open_in_explorer,
             commands::build_entry::list_executables,
             commands::build_entry::detect_build_info,
+            commands::build_entry::get_build_info,
             commands::build_entry::save_custom_build,
             commands::build_entry::move_build_to_category,
             commands::build_entry::create_shortcut,
             commands::build_entry::create_symlink,
             commands::build_entry::toggle_portable,
             commands::build_entry::is_portable,
+            commands::build_entry::set_build_frozen,
+            commands::build_entry::open_config_folder,
             commands::build_entry::register_file_association,
             commands::build_entry::install_template,
             commands::build_entry::get_build_hash,

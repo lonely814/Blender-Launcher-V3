@@ -22,9 +22,15 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const STABLE_VERSIONS_TO_SCRAPE: usize = 3;
 /// 每个 fork 拉取的最近 release 数。
 const FORK_RELEASES_TO_SCRAPE: usize = 3;
-/// Installer/archive extensions accepted as downloadable builds.
-/// `.sha256`, `.msix` and `.tar.bz2` are deliberately skipped.
-const BUILD_EXTENSIONS: [&str; 5] = ["zip", "msi", "dmg", "tar.xz", "tar.gz"];
+/// 允许出现在下载列表里的**便携归档**后缀，按平台区分。
+///
+/// 与原版 `source/threads/scraping/base.py::regex_filter` 一致：
+/// Windows 只认 `.zip`，macOS 只认 `.dmg`，Linux 只认 `.tar.xz` / `.tar.gz`。
+/// `msi`/`msix` 是安装器（写注册表、装进 Program Files），不是便携包：
+/// 既解不开、也进不了构建库，列出来只会让同一版本出现 zip/msi/msix 三行。
+const PORTABLE_SUFFIXES_WINDOWS: [&str; 1] = [".zip"];
+const PORTABLE_SUFFIXES_MACOS: [&str; 1] = [".dmg"];
+const PORTABLE_SUFFIXES_LINUX: [&str; 2] = [".tar.xz", ".tar.gz"];
 
 /// Scrapes Blender build listings from blender.org.
 ///
@@ -154,6 +160,8 @@ impl Scraper {
                     breaking_changes: None,
                     is_installed: false,
                     install_path: None,
+                            label: None,
+                            is_frozen: false,
                             update_build_id: None,
                 });
             }
@@ -301,16 +309,17 @@ fn parse_builder_page(html: &str, branch: BuildBranch, fork: BuildFork) -> Vec<B
         }
 
         // Fallback when the download anchor lost its title: any anchor that
-        // is not the SHA link and points at an accepted installer.
+        // is not the SHA link and points at a portable archive.
         let url = match download_url {
-            Some(url) if is_build_file(&url) => url,
+            Some(url) if is_portable_archive(&url, platform) => url,
             _ => row_soup
                 .tag("a")
                 .find_all()
                 .find_map(|anchor| {
                     let class = anchor.get("class").unwrap_or_default();
                     let href = anchor.get("href").unwrap_or_default();
-                    (!class.contains("b-sha") && is_build_file(&href)).then_some(href)
+                    (!class.contains("b-sha") && is_portable_archive(&href, platform))
+                        .then_some(href)
                 })
                 .unwrap_or_default(),
         };
@@ -351,6 +360,8 @@ fn parse_builder_page(html: &str, branch: BuildBranch, fork: BuildFork) -> Vec<B
             breaking_changes: None,
             is_installed: false,
             install_path: None,
+            label: None,
+            is_frozen: false,
             update_build_id: None,
         });
     }
@@ -413,6 +424,8 @@ fn parse_release_dir(html: &str, base_url: &str) -> Vec<Build> {
             breaking_changes: None,
             is_installed: false,
             install_path: None,
+            label: None,
+            is_frozen: false,
             update_build_id: None,
         });
     }
@@ -462,7 +475,7 @@ fn latest_release_dirs(html: &str, limit: usize) -> Vec<String> {
 /// `-stable+main-PR<id>.<hash>`), which makes it unique per commit.
 fn parse_builder_filename(url: &str) -> Option<(String, Architecture)> {
     let filename = url.rsplit('/').next()?;
-    if !is_build_file(filename) {
+    if !has_portable_suffix(filename) {
         return None;
     }
     let (version, _platform, architecture) = parse_builder_stem(filename)?;
@@ -500,12 +513,13 @@ pub fn parse_builder_stem(stem: &str) -> Option<(String, Platform, Architecture)
     None
 }
 
-/// `blender-4.5.0-windows-x64.msi` → `("4.5.0", Windows, X64)`.
+/// `blender-4.5.0-windows-x64.zip` → `("4.5.0", Windows, X64)`。
+///
+/// 后缀必须与**解析出的平台**匹配：`-windows-x64.msi` 解析得出 Windows，
+/// 但 `.msi` 不是 Windows 的便携后缀，于是被拒。
 fn parse_release_filename(filename: &str) -> Option<(String, Platform, Architecture)> {
-    if !is_build_file(filename) {
-        return None;
-    }
-    parse_release_stem(filename)
+    let (version, platform, architecture) = parse_release_stem(filename)?;
+    is_portable_archive(filename, platform).then_some((version, platform, architecture))
 }
 
 /// Release-style filename stem without extension, e.g.
@@ -584,11 +598,14 @@ struct GitHubAsset {
 
 /// GitHub fork 资产名 → (version, platform, architecture)。
 fn parse_fork_asset(name: &str, fork: BuildFork) -> Option<(String, Platform, Architecture)> {
-    match fork {
+    let parsed = match fork {
         BuildFork::Bforartists => parse_bforartists_asset(name),
         BuildFork::Upbge => parse_upbge_asset(name),
         BuildFork::Official => None,
-    }
+    }?;
+    // 与原版一致：后缀必须与平台匹配。Bforartists 的 `-MacSilicon.zip`
+    // 就被这一条挡掉（macOS 只认 .dmg）。
+    is_portable_archive(name, parsed.1).then_some(parsed)
 }
 
 /// `Bforartists-5.2.3-Windows.zip` → ("5.2.3", Windows, X64)；
@@ -686,10 +703,43 @@ fn parse_size_title(title: &str) -> u64 {
     (value * multiplier) as u64
 }
 
-/// True when the URL points at an accepted installer/archive.
-fn is_build_file(url: &str) -> bool {
+/// 文件名是否带任一平台的便携归档后缀。
+///
+/// builder 页每个 `<li>` 的 class 已经给出平台，这里只是第二道闸：
+/// 同一行里 `.msix` 行不满足后缀，直接排除。
+fn has_portable_suffix(name: &str) -> bool {
+    let path = name.split(['?', '#']).next().unwrap_or(name);
+    [Platform::Windows, Platform::Macos, Platform::Linux]
+        .iter()
+        .any(|platform| is_portable_archive(path, *platform))
+}
+
+/// 该 URL 是否是本平台的便携归档（原版 `regex_filter` 的等价实现）。
+///
+/// 只认 zip / dmg / tar.*，`msi`、`msix`、`sha256`、`tar.bz2` 一律不算——
+/// 安装器装进系统后不在构建库里，列出来只会误导用户。
+pub fn is_portable_archive(url: &str, platform: Platform) -> bool {
     let path = url.split(['?', '#']).next().unwrap_or(url);
-    BUILD_EXTENSIONS.iter().any(|ext| path.ends_with(ext))
+    let suffixes: &[&str] = match platform {
+        Platform::Windows => &PORTABLE_SUFFIXES_WINDOWS,
+        Platform::Macos => &PORTABLE_SUFFIXES_MACOS,
+        Platform::Linux => &PORTABLE_SUFFIXES_LINUX,
+    };
+    suffixes.iter().any(|suffix| path.ends_with(suffix))
+}
+
+/// 远程条目是否指向便携归档；本地合成条目（`local://`、`library://`）
+/// 没有下载地址，一律放行。
+///
+/// 用于**过滤历史缓存**：3.1.1 及更早版本把 `msi` 也收进了列表，这些条目
+/// 已经写进 SQLite，光改爬虫的话旧缓存会一直显示到下次刷新为止。
+pub fn is_portable_build(build: &Build) -> bool {
+    if build.url.starts_with(crate::service::library::LOCAL_URL_PREFIX)
+        || build.url.starts_with(crate::service::library::LIBRARY_URL_PREFIX)
+    {
+        return true;
+    }
+    is_portable_archive(&build.url, build.platform)
 }
 
 /// `blender-4.5.0-windows-x64.zip` → `blender-4.5.0-windows-x64`；非安装包 → None。
@@ -839,6 +889,7 @@ mod tests {
     /// Mirrors real rows from download.blender.org/release/Blender4.5/.
     const RELEASE_DIR_HTML: &str = "\
 <a href=\"blender-4.5.0-windows-x64.msi\">blender-4.5.0-windows-x64.msi</a>          15-Jul-2025 08:40      355679488
+<a href=\"blender-4.5.0-windows-x64.zip\">blender-4.5.0-windows-x64.zip</a>          15-Jul-2025 08:40      413902772
 <a href=\"blender-4.5.0-linux-x64.tar.xz\">blender-4.5.0-linux-x64.tar.xz</a>        15-Jul-2025 08:40      376170648
 <a href=\"blender-4.5.0-windows-arm64.msix\">blender-4.5.0-windows-arm64.msix</a>    15-Jul-2025 08:40      360000000
 <a href=\"blender-4.5.0.sha256\">blender-4.5.0.sha256</a>                            15-Jul-2025 08:40             321
@@ -851,21 +902,25 @@ mod tests {
             RELEASE_DIR_HTML,
             "https://download.blender.org/release/Blender4.5",
         );
-        assert_eq!(builds.len(), 2, "msix, sha256 and tar.bz2 must be skipped");
-
-        let msi = &builds[0];
-        assert_eq!(msi.version, "4.5.0");
-        assert_eq!(msi.branch, BuildBranch::Stable);
-        assert_eq!(msi.platform, Platform::Windows);
-        assert_eq!(msi.architecture, Architecture::X64);
-        assert_eq!(msi.size_bytes, 355_679_488);
         assert_eq!(
-            msi.release_date.format("%Y-%m-%dT%H:%M").to_string(),
+            builds.len(),
+            2,
+            "msi, msix, sha256 and tar.bz2 must be skipped — only portable archives listed"
+        );
+
+        let zip = &builds[0];
+        assert_eq!(zip.version, "4.5.0");
+        assert_eq!(zip.branch, BuildBranch::Stable);
+        assert_eq!(zip.platform, Platform::Windows);
+        assert_eq!(zip.architecture, Architecture::X64);
+        assert_eq!(zip.size_bytes, 413_902_772);
+        assert_eq!(
+            zip.release_date.format("%Y-%m-%dT%H:%M").to_string(),
             "2025-07-15T08:40"
         );
         assert_eq!(
-            msi.url,
-            "https://download.blender.org/release/Blender4.5/blender-4.5.0-windows-x64.msi"
+            zip.url,
+            "https://download.blender.org/release/Blender4.5/blender-4.5.0-windows-x64.zip"
         );
 
         let tar = &builds[1];
@@ -937,11 +992,10 @@ mod tests {
         assert_eq!(platform, Platform::Linux);
         assert_eq!(arch, Architecture::X64);
 
-        let (version, platform, arch) =
-            parse_fork_asset("Bforartists-5.2.3-MacSilicon.zip", BuildFork::Bforartists).unwrap();
-        assert_eq!(version, "5.2.3");
-        assert_eq!(platform, Platform::Macos);
-        assert_eq!(arch, Architecture::Arm64);
+        // macOS 只认 .dmg（原版 bfa.matches_platform：`name.endswith(".dmg")`）。
+        // `-MacSilicon.zip` 是同一版本的双份打包，解析得出 Macos 但后缀不符，
+        // 必须挡掉，否则同一个版本在列表里出现两行。
+        assert!(parse_fork_asset("Bforartists-5.2.3-MacSilicon.zip", BuildFork::Bforartists).is_none());
 
         let (version, platform, arch) =
             parse_fork_asset("Bforartists-5.2.3-Mac-Silicon.dmg", BuildFork::Bforartists).unwrap();
@@ -980,24 +1034,46 @@ mod tests {
     }
 
     #[test]
-    fn test_is_build_file() {
-        assert!(is_build_file(
-            "https://cdn.example.com/blender-5.0.0-windows.amd64-release.zip"
+    fn test_is_portable_archive() {
+        // Windows 只认 zip。
+        assert!(is_portable_archive(
+            "https://cdn.example.com/blender-5.0.0-windows.amd64-release.zip",
+            Platform::Windows
         ));
-        assert!(is_build_file(
-            "https://cdn.example.com/blender-4.5.0-linux-x64.tar.xz"
+        assert!(is_portable_archive(
+            "https://cdn.example.com/blender-4.5.0-windows-x64.zip?query=1",
+            Platform::Windows
         ));
-        assert!(is_build_file(
-            "https://cdn.example.com/blender-4.5.0-windows-x64.msi?query=1"
+        // msi / msix 是安装器，不是便携包。
+        assert!(!is_portable_archive(
+            "https://cdn.example.com/blender-4.5.0-windows-x64.msi",
+            Platform::Windows
         ));
-        assert!(!is_build_file(
-            "https://cdn.example.com/blender-4.5.0.sha256"
+        assert!(!is_portable_archive(
+            "https://cdn.example.com/blender-4.5.0-windows-x64.msix",
+            Platform::Windows
         ));
-        assert!(!is_build_file(
-            "https://cdn.example.com/blender-4.5.0-windows-x64.msix"
+        // Linux 认 tar.xz / tar.gz，不认 tar.bz2 与 sha256。
+        assert!(is_portable_archive(
+            "https://cdn.example.com/blender-4.5.0-linux-x64.tar.xz",
+            Platform::Linux
         ));
-        assert!(!is_build_file(
-            "https://cdn.example.com/blender-4.2.9-linux-x64.tar.bz2"
+        assert!(!is_portable_archive(
+            "https://cdn.example.com/blender-4.2.9-linux-x64.tar.bz2",
+            Platform::Linux
+        ));
+        assert!(!is_portable_archive(
+            "https://cdn.example.com/blender-4.5.0.sha256",
+            Platform::Linux
+        ));
+        // macOS 只认 dmg。
+        assert!(is_portable_archive(
+            "https://cdn.example.com/blender-4.5.0-macos-arm64.dmg",
+            Platform::Macos
+        ));
+        assert!(!is_portable_archive(
+            "https://cdn.example.com/blender-4.5.0-macos-arm64.zip",
+            Platform::Macos
         ));
     }
 
@@ -1015,6 +1091,20 @@ mod tests {
         assert!(builds
             .iter()
             .all(|build| !build.url.is_empty() && build.size_bytes > 0 && !build.id.is_empty()));
+        // 列表里不能有 msi/msix：builder 页上它们与 zip 是同一构建。
+        assert!(
+            builds.iter().all(is_portable_build),
+            "daily list must only contain portable archives"
+        );
+        // 同一 (版本, 平台, 架构) 只能出现一次——之前 zip/msi/msix 三行都进列表。
+        let mut keys = HashSet::new();
+        for build in &builds {
+            let key = format!(
+                "{}|{:?}|{:?}|{:?}",
+                build.version, build.platform, build.architecture, build.branch
+            );
+            assert!(keys.insert(key.clone()), "duplicate build in list: {key}");
+        }
     }
 
     /// Live smoke test against the GitHub Releases fork source (docs/01 §2.4).
@@ -1030,5 +1120,34 @@ mod tests {
         assert!(builds
             .iter()
             .all(|build| build.fork == BuildFork::Bforartists && !build.url.is_empty()));
+        assert!(
+            builds.iter().all(is_portable_build),
+            "fork list must only contain portable archives"
+        );
+    }
+
+    /// Live smoke test against download.blender.org stable directories.
+    #[tokio::test]
+    #[ignore = "hits the network; run explicitly with `cargo test -- --ignored`"]
+    async fn scrape_stable_live() {
+        let scraper = Scraper::new();
+        let builds = scraper
+            .fetch_builds(BuildFork::Official, BuildBranch::Stable)
+            .await
+            .unwrap();
+        assert!(!builds.is_empty());
+        assert!(
+            builds.iter().all(is_portable_build),
+            "stable list must only contain portable archives (no msi/msix)"
+        );
+        // 每个 (版本, 平台, 架构) 只应出现一次：以前 zip/msi/msix 会各占一行。
+        let mut keys = HashSet::new();
+        for build in &builds {
+            let key = format!(
+                "{}|{:?}|{:?}",
+                build.version, build.platform, build.architecture
+            );
+            assert!(keys.insert(key.clone()), "duplicate build: {key}");
+        }
     }
 }

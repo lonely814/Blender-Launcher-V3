@@ -104,12 +104,34 @@ impl Launcher {
     }
 
     /// Locates the blender executable for the current platform.
-    /// 原版优先级：custom_executable → bforartists.* → blender.*
+    ///
+    /// 原版优先级：`.blinfo` 的 `custom_executable` → bforartists.* → blender.*
+    ///
+    /// `custom_executable` 必须在最前面：便携包里同时存在 `blender.exe` 和
+    /// `blender-launcher.exe`，用户若在「编辑构建」里指定了某个可执行文件，
+    /// 保存进 `.blinfo` 却不生效，点了启动还是跑默认那个，看上去就是
+    /// 「保存没起作用」。这里先读 `.blinfo`，读不到再走候选列表。
     fn find_executable(build: &Build) -> Result<PathBuf> {
         let install_path = build
             .install_path
             .as_ref()
             .ok_or_else(|| AppError::BuildNotFound("Not installed".into()))?;
+
+        // 1) 用户指定的可执行文件。缺失（被删/改名）时静默回退到候选，
+        //    不让一个过期的配置把构建锁死成「无法启动」。
+        if let Some(custom) = crate::service::library::read_blinfo(install_path)
+            .and_then(|entry| entry.custom_executable)
+            .filter(|name| !name.trim().is_empty())
+        {
+            let exe = install_path.join(custom.trim());
+            if exe.is_file() {
+                return Ok(exe);
+            }
+            tracing::warn!(
+                path = %exe.display(),
+                "custom_executable from .blinfo not found; falling back"
+            );
+        }
 
         #[cfg(target_os = "windows")]
         let candidates = ["bforartists.exe", "blender.exe"];

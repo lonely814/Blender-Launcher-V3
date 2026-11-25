@@ -292,6 +292,8 @@ mod tests {
             breaking_changes: None,
             is_installed: installed,
             install_path: None,
+            label: None,
+            is_frozen: false,
             update_build_id: None,
         }
     }

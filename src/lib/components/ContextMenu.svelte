@@ -1,18 +1,17 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
 	import { placeMenu, placeSubmenu } from '$lib/menu-position';
+	import MenuGlyph from '$lib/components/MenuGlyph.svelte';
 	import type { MenuItem } from '$lib/types';
 
 	let {
 		x = 0,
 		y = 0,
-		build = null,
 		items = [],
 		onClose = () => {}
 	}: {
 		x?: number;
 		y?: number;
-		build?: { version: string } | null;
 		items?: MenuItem[];
 		onClose?: () => void;
 	} = $props();
@@ -125,6 +124,28 @@
 			.filter(({ item }) => !item.separator && !item.disabled)
 	);
 
+	/**
+	 * 按住 Shift 时的文案切换（原版 `holding_shift` 信号）。
+	 *
+	 * 原版只用于一处：删除项在「移至回收站 / 永久删除」之间切换。
+	 * 这里做成通用能力——`altLabel` 存在就跟着 Shift 走。
+	 * 监听挂在 window 上而不是菜单 div 上：原版是 QMenu 的事件过滤器，
+	 * 但 WebView 里菜单未必一直持有键盘焦点，挂 window 更可靠。
+	 */
+	let shiftHeld = $state(false);
+	function trackShift(event: KeyboardEvent): void {
+		if (event.key === 'Shift') shiftHeld = event.type === 'keydown';
+	}
+	function trackShiftBlur(): void {
+		// 窗口失焦时收不到 keyup，必须主动复位，否则下次打开菜单文案是错的。
+		shiftHeld = false;
+	}
+
+	function itemLabel(item: MenuItem): string {
+		if (shiftHeld && item.altLabel) return item.altLabel;
+		return item.label ?? '';
+	}
+
 	function move(delta: number): void {
 		if (actionable.length === 0) return;
 		const position = actionable.findIndex(({ index }) => index === activeIndex);
@@ -139,7 +160,8 @@
 			openSub = item.label ?? null;
 			return;
 		}
-		item.action?.();
+		// 把修饰键状态交给 action：删除项靠它决定回收站还是永久删除。
+		item.action?.(shiftHeld);
 		onClose();
 	}
 
@@ -179,11 +201,24 @@
 	}
 </script>
 
-<svelte:window onclick={handleWindowClick} />
+<svelte:window
+	onclick={handleWindowClick}
+	onkeydown={trackShift}
+	onkeyup={trackShift}
+	onblur={trackShiftBlur}
+/>
 
+<!--
+  菜单外观对齐原版 QMenu.css：
+  - 底色 #1F1F1F（surface-0）而不是 hover 用的 surface-3；
+  - 边框 #323232 1px，无圆角、无内边距（原版 padding: 0px）；
+  - 条目 padding 6px 10px 6px 6px，选中底色固定蓝 #5076B2 白字；
+  - 分隔线 1px #616161，左右各留 4px。
+  之前用的是 surface-3 底 + 2px 圆角 + 无图标，观感与原版差距主要来自这几点。
+-->
 <div
 	bind:this={element}
-	class="fixed z-50 min-w-[240px] overflow-y-auto rounded-sm2 border border-surface-4 bg-surface-3 py-1 text-sm text-ink-1 shadow-2xl
+	class="fixed z-50 min-w-[200px] overflow-y-auto border border-[#323232] bg-[#1f1f1f] py-0 text-[13px] text-ink-1 shadow-2xl
 		{placed ? 'opacity-100' : 'opacity-0'}"
 	style="left: {panelLeft}px; top: {panelTop}px; max-height: {panelMaxHeight}px;"
 	role="menu"
@@ -191,22 +226,19 @@
 	onkeydown={handleKey}
 	onclick={(event) => event.stopPropagation()}
 >
-	{#if build}
-		<div class="truncate px-3 py-1 text-xs text-ink-3">{build.version}</div>
-	{/if}
 	{#each items as item, index (index)}
 		{#if item.separator}
-			<div class="my-1 border-t border-surface-4"></div>
+			<div class="mx-1 my-0 h-px bg-[#616161]"></div>
 		{:else if item.children?.length}
 			<div class="relative">
 				<button
 					data-sub={item.label}
-					class="flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left transition
+					class="flex w-full items-center gap-2 py-1.5 pl-1.5 pr-2.5 text-left transition
 						{item.disabled
-						? 'cursor-not-allowed text-ink-3'
+						? 'cursor-not-allowed text-[#828282]'
 						: index === activeIndex
-							? 'bg-surface-4 text-white'
-							: 'hover:bg-surface-4 hover:text-white'}"
+							? 'bg-menu-select text-white'
+							: 'hover:bg-menu-select hover:text-white'}"
 					disabled={item.disabled}
 					role="menuitem"
 					aria-haspopup="menu"
@@ -217,28 +249,41 @@
 					}}
 					onclick={() => (openSub = openSub === item.label ? null : (item.label ?? null))}
 				>
-					<span>{item.label}</span>
-					<span class="text-[10px] text-ink-3">▸</span>
+					<!-- 图标位 16px 固定宽：没有图标也占位，保证所有文字左对齐。 -->
+					<span class="flex w-4 shrink-0 items-center justify-center">
+						{#if item.icon}
+							<MenuGlyph name={item.icon} />
+						{/if}
+					</span>
+					<span class="min-w-0 flex-1">{itemLabel(item)}</span>
+					<span class="shrink-0 text-[9px]">▸</span>
 				</button>
 				{#if openSub === item.label}
 					<div
 						use:registerPanel={item.label ?? ''}
-						class="fixed z-50 min-w-[200px] rounded-sm2 border border-surface-4 bg-surface-3 py-1 shadow-2xl"
+						class="fixed z-50 min-w-[160px] border border-[#323232] bg-[#1f1f1f] py-0 shadow-2xl"
 						style="left: {subLeft}px; top: {subTop}px;"
 						role="menu"
 					>
 						{#each item.children as child (child.label)}
 							<button
-								class="flex w-full items-center gap-2 px-3 py-1.5 text-left transition
-									{child.disabled ? 'cursor-not-allowed text-ink-3' : 'hover:bg-surface-4 hover:text-white'}"
+								class="flex w-full items-center gap-2 py-1.5 pl-1.5 pr-2.5 text-left transition
+									{child.disabled
+									? 'cursor-not-allowed text-[#828282]'
+									: 'hover:bg-menu-select hover:text-white'}"
 								disabled={child.disabled}
 								role="menuitem"
 								onclick={() => {
-									child.action?.();
+									child.action?.(shiftHeld);
 									onClose();
 								}}
 							>
-								{child.label}
+								<span class="flex w-4 shrink-0 items-center justify-center">
+									{#if child.icon}
+										<MenuGlyph name={child.icon} />
+									{/if}
+								</span>
+								<span class="min-w-0 flex-1 truncate">{child.label}</span>
 							</button>
 						{/each}
 					</div>
@@ -246,21 +291,26 @@
 			</div>
 		{:else}
 			<button
-				class="flex w-full items-center gap-2 px-3 py-1.5 text-left transition
+				class="flex w-full items-center gap-2 py-1.5 pl-1.5 pr-2.5 text-left transition
 					{item.disabled
-					? 'cursor-not-allowed text-ink-3'
+					? 'cursor-not-allowed text-[#828282]'
 					: index === activeIndex
-						? 'bg-surface-4 text-white'
-						: 'hover:bg-surface-4 hover:text-white'}"
+						? 'bg-menu-select text-white'
+						: 'hover:bg-menu-select hover:text-white'}"
 				disabled={item.disabled}
 				role="menuitem"
 				onmouseenter={() => (activeIndex = index)}
 				onclick={() => {
-					item.action?.();
+					item.action?.(shiftHeld);
 					onClose();
 				}}
 			>
-				{item.label ?? ''}
+				<span class="flex w-4 shrink-0 items-center justify-center">
+					{#if item.icon}
+						<MenuGlyph name={item.icon} />
+					{/if}
+				</span>
+				<span class="min-w-0 flex-1 truncate">{itemLabel(item)}</span>
 			</button>
 		{/if}
 	{/each}

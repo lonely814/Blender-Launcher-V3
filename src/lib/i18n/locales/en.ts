@@ -263,11 +263,16 @@ export default {
 	'menu.renameBranch': 'Move to branch',
 	'menu.notes': 'Show release notes',
 	'menu.folder': 'Show build folder',
+	'menu.configFolder': 'Show config folder',
 	'menu.edit': 'Edit build…',
+	'menu.freezeUpdate': 'Freeze update',
+	'menu.unfreezeUpdate': 'Unfreeze update',
+	'confirm.trashOne': 'Move Blender {version} to the Recycle Bin?',
 	'confirm.deleteOne': 'Delete Blender {version} from disk?',
 	'confirm.deleteMany': 'Delete {count} builds from disk?',
 	'menu.deleteOne': 'Delete from drive',
 	'menu.deleteMany': 'Delete {count} builds from drive',
+	'menu.trash': 'Send to Trash',
 
 	// extensions（docs/06）
 	'ext.title': 'Extensions',

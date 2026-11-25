@@ -41,10 +41,29 @@
 	async function loadExecutables(): Promise<void> {
 		try {
 			executables = await api.listExecutables(path);
-			if (!executable && executables.length) executable = executables[0];
+			if (!executable && executables.length) executable = preferredExecutable(executables);
 		} catch (err) {
 			error = String(err);
 		}
+	}
+
+	/**
+	 * 默认可执行文件不能取列表第一个。
+	 *
+	 * 目录里同时有 `blender.exe` 和 `blender-launcher.exe`（5.x 便携包就是
+	 * 这样），按字母序 `blender-launcher.exe` 排在前面。选中它会让
+	 * 「启动」去跑启动器而不是 Blender，而且这个选择会被写进
+	 * `.blinfo` 的 `custom_executable`，之后一直生效。
+	 * 优先复用后端 `find_executable` 的同一套优先级（bforartists → blender），
+	 * 都没有再退回第一个。
+	 */
+	function preferredExecutable(names: string[]): string {
+		const priority = ['bforartists.exe', 'blender.exe', 'bforartists', 'blender'];
+		for (const candidate of priority) {
+			const hit = names.find((name) => name.toLowerCase() === candidate);
+			if (hit) return hit;
+		}
+		return names[0];
 	}
 	void loadExecutables();
 

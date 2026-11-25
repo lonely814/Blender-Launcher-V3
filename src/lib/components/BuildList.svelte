@@ -122,7 +122,6 @@
 	const showUpdate = $derived(($settings?.show_update_button ?? true) !== false);
 	const compact = $derived(density === 'compact');
 	const cellPad = $derived(compact ? 'px-3 py-1' : 'px-3 py-1.5');
-	const btnSize = $derived(compact ? 'h-6 text-[12px]' : 'h-7 text-[13px]');
 
 	// 纯函数：读 $state 时由调用点（模板）建立依赖，无需 $derived 包一层。
 	function updateOf(b: Build): string | null | undefined {
@@ -200,9 +199,9 @@
 	<!-- 列头：原版三列可点击排序；Custom 页左侧是 Reload 按钮 -->
 	<div class="flex shrink-0 items-center border-b border-surface-1 bg-surface-3 text-[13px] font-semibold text-ink-1">
 		{#if onReload}
-			<div class="w-[104px] shrink-0 px-1 {compact ? 'py-0.5' : 'py-1.5'}">
+			<div class="flex w-[95px] shrink-0 items-stretch">
 				<button
-					class="h-6 w-[92px] rounded-sm2 bg-surface-4 text-[12px] text-ink-1 hover:text-white"
+					class="h-full w-full px-2 text-[12px] text-ink-1 hover:bg-surface-4 hover:text-white"
 					title={tr('action.reload')}
 					onclick={onReload}
 				>
@@ -210,8 +209,10 @@
 				</button>
 			</div>
 		{:else}
-			<div class="{compact ? 'w-[98px]' : 'w-[104px]'} shrink-0"></div>
+			<div class="w-[95px] shrink-0"></div>
 		{/if}
+		<!-- 版本列宽与原版 subversionLabel(85) 一致；出现更新按钮时行内
+		     多占的 25px 由按钮格子内部消化，列头不需跟着变。 -->
 		<button class="min-w-[85px] flex-[0_0_140px] px-3 py-2 text-left hover:text-white" onclick={() => onSort('version')}>
 			{tr('col.version')} <span class="text-[10px] text-accent">{arrow('version')}</span>
 		</button>
@@ -291,10 +292,14 @@
 					ondblclick={(event) => onDefault(row.build, event.shiftKey)}
 					onkeydown={(event) => event.key === 'Enter' && onDefault(row.build, event.shiftKey)}
 				>
-					<div class="flex shrink-0 items-center gap-1 px-1 {compact ? 'w-[98px] py-0.5' : 'w-[104px] py-1.5'}">
+					<!-- 原版 launchButton setFixedWidth(95)、撑满行高，按钮本身就是
+					     整块 95px×行高的色块。出现更新按钮时原版把 launch 收窄到 70、
+					     再并排一个 25px 更新按钮，**合计仍是 95**——列宽不变，
+					     所以这里外层固定 95px，两个按钮在同一个格子内分配。 -->
+					<div class="flex h-full w-[95px] shrink-0 items-stretch">
 						<button
-							class="{btnSize} rounded-sm2 px-2 font-medium text-white transition
-								{updateOf(row.build) ? (compact ? 'w-[62px]' : 'w-[70px]') : compact ? 'w-[86px]' : 'w-[92px]'}
+							class="h-full px-2 font-medium text-white transition
+								{updateOf(row.build) ? 'w-[70px]' : 'flex-1'}
 								{row.action === 'running'
 								? 'bg-accent hover:bg-accent/85'
 								: 'bg-success hover:bg-success/85'}"
@@ -305,12 +310,9 @@
 						>
 							{actionLabel(row.action)}
 						</button>
-					</div>
-					<!-- 原版独立的 25px 更新图标按钮，出现在 Launch 与版本号之间 -->
-					{#if updateOf(row.build)}
-						<div class="w-[22px] shrink-0">
+						{#if updateOf(row.build)}
 							<button
-								class="flex h-6 w-6 items-center justify-center rounded-sm2 text-info transition hover:bg-surface-4 hover:brightness-125"
+								class="flex w-[25px] items-center justify-center text-info transition hover:bg-surface-4 hover:brightness-125"
 								title={tr('action.update')}
 								onclick={(event) => {
 									event.stopPropagation();
@@ -321,8 +323,8 @@
 									<path d="M12 19V5M5 12l7-7 7 7" />
 								</svg>
 							</button>
-						</div>
-					{/if}
+						{/if}
+					</div>
 					<div
 						class="truncate {cellPad} text-ink-1
 							{updateOf(row.build) ? 'min-w-[60px] flex-[0_0_115px]' : 'min-w-[85px] flex-[0_0_140px]'}"
@@ -330,8 +332,13 @@
 					>
 						{row.build.version}
 					</div>
-					<div class="min-w-[80px] flex-1 truncate {cellPad} capitalize text-ink-2">
-						{row.build.branch}
+					<!-- 分支列显示原版 display_label（自定义名优先，其次按分支/变体生成），
+					     没有 label 时回退到枚举名并首字母大写（原版 branch.title()）。 -->
+					<div
+						class="min-w-[80px] flex-1 truncate {cellPad} capitalize text-ink-2"
+						title={row.build.label ?? row.build.branch}
+					>
+						{row.build.label ?? row.build.branch}
 					</div>
 					<div class="w-[152px] shrink-0 truncate {cellPad} text-right tabular-nums text-ink-2">
 						{showHash ? hashOf(row.build) : dateText(row.build)}

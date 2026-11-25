@@ -28,7 +28,9 @@ export default {
 					2: 'rgb(var(--ink-2) / <alpha-value>)',
 					3: 'rgb(var(--ink-3) / <alpha-value>)'
 				},
-				scrim: 'rgb(var(--scrim) / <alpha-value>)'
+				scrim: 'rgb(var(--scrim) / <alpha-value>)',
+				// 右键菜单选中项（原版 QMenu::item::selected #5076B2）。
+				'menu-select': 'rgb(var(--menu-select) / <alpha-value>)'
 			},
 			fontFamily: {
 				sans: ['var(--font-sans)'],
